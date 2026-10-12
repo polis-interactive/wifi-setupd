@@ -4,7 +4,9 @@ Workspace setup and **Steps 0.1–0.3 are complete**. The Pi boots the developme
 image; the Ethernet update suite passed hardware acceptance, including rollback
 and reboot persistence. iwd joined Wi-Fi, obtained an address, and passed Wi-Fi
 ping/SSH checks. The selected credentials were forgotten and stayed absent after
-iwd restart and Pi reboot. **Step 1 is next:** public API and local test foundation.
+iwd restart and Pi reboot. **Step 1 is complete:** public API and local test
+foundation. **Step 2 is in progress:** the direct zbus iwd adapter is implemented;
+local tests and initial Pi checks pass, with remaining hardware acceptance below.
 Remaining milestones describe planned work and require acceptance before advancing.
 
 Use zbus directly for iwd integration. iwdrs may be consulted for examples but
@@ -105,6 +107,23 @@ the Step 0 support suite. A release task, if added, preserves this boundary.
 
 ## 1. Public contract and local test foundation
 
+Completed on 2026-10-12. The [public contract](../crates/wifi-setupd-api/README.md)
+defines string wire values, a coherent status tuple, typed proxies/errors,
+idempotent Start/Stop, cancellation reconciliation, and LastError retention.
+The daemon has a Wi-Fi adapter trait and read-only watch snapshots. Its strict
+scripted test adapter uses temporary metadata storage and paused Tokio time;
+it has no path to a real backend. No credential database is introduced.
+
+Acceptance passed: the independent `tests/api-consumer` workspace compiles;
+the private-bus fixture reads properties, observes updates, checks typed
+rejections/repeated commands, receives completion, and supports a fresh client.
+Simulated success, failure, timeout/reconciliation, temporary storage cleanup,
+and credential Debug redaction pass. Formatting, workspace build, and strict
+Clippy pass. The API package allowlist excludes development scripts and tests;
+its normal dependency graph contains no daemon, UI, iwd, or Kameo.
+This validates the contract and test foundation; actual actor cancellation and
+credential durability remain Steps 3–4. Production service startup is not added.
+
 Define stable D-Bus representations for states and errors, typed zbus proxies,
 and the internal Wi-Fi adapter boundary. Introduce a scripted mock, injectable
 bus connections, temporary persistence, and a status snapshot. Resolve stable
@@ -121,17 +140,90 @@ network access. No dependency on UI, root privileges, or physical hardware.
 
 ## 2. Implement the direct zbus iwd adapter
 
+Implementation is in [the daemon's internal adapter](../crates/wifi-setupd/src/wifi/iwd/mod.rs),
+with [design notes](iwd-adapter.md) and a separate
+[development probe](../dev/iwd-probe/README.md). Private-bus tests cover actual
+zbus method/property signatures, callbacks, replacement, cancellation, and
+object/name-owner changes. In-flight mode changes and Forget replies survive
+caller cancellation so a late reply cannot be mistaken for completed cleanup.
+
+Pi evidence on 2026-10-12: the AArch64 musl probe discovers iwd 3.12, scans,
+observes a successful user-entered station connection with Wi-Fi IPv4, and
+recovers in the same adapter instance across iwd restart. A shutdown read
+timeout exposed by the Pi now produces Unavailable/Unknown within three seconds;
+subsequent observations recover. Non-secret evidence is in ignored
+`local/pi/step2-station.log` and `local/pi/step2-iwd-restart.log`.
+The working user network profile was initially retained in iwd. The user later
+explicitly requested fresh-credential testing: the `Waller Creek Assembly Plant`
+profile has now been forgotten through iwd and verified absent from its saved
+network list. The Pi remains disconnected for the phone/AP test.
+
+AP startup initially failed: the default iwd HT channel configuration was
+rejected by the Pi's brcmfmac driver (`START_AP failed: -52`). An iwd AP profile
+with `DisableHT=true` starts successfully on channel 6 with an AP-side IPv4
+address. The adapter now supports `StartProfile` without reading/writing secrets.
+The dev wrapper supplies a temporary iwd profile and removes it after startup;
+the AP continues running in iwd after the probe/SSH command exits. At the user's
+request there is **no automatic AP shutdown timer**: use `stop-ap` explicitly.
+Persistent AP startup, scoped temporary-profile cleanup, and explicit return to
+station mode pass on hardware. Evidence is in ignored
+`local/pi/step2-ap-iwd-diagnostics.log`, `local/pi/step2-ap-address.log`, and
+`local/pi/step2-ap-persistent.log`. Production AP image configuration belongs in
+BuildrootImages; phone-side DHCP is not established by the Pi's own address.
+The saved router profile reconnects to Ready afterward. An immediate connect
+before station discovery populated returned NetworkUnavailable, with an Internal
+cleanup error; retry after discovery succeeded. Qualify this transition race and
+reconciliation before accepting the AP-to-station connection workflow.
+
+Phone/AP DHCP passed on 2026-10-12: the user joined `wifi-setupd-test` and
+reported phone IPv4 `192.168.16.2`. A simultaneous read-only Pi check confirmed
+the AP was started, one station was associated, and wlan0 held
+`192.168.16.1/28`, placing the phone on the AP subnet. The AP remains running;
+no portal or credential-submission UI exists at this milestone.
+
+Still pending: AP-to-station discovery/reconciliation timing; explicit
+replacement/failure hardware checks; WPA2/WPA3-only/mixed qualification.
+The available network's exact negotiated security has not been established.
+IPv6-only readiness is not yet qualified. iwd 3.12's generic connection error
+does not reliably identify rejected credentials; the automatic-removal policy
+below requires stronger evidence than a generic Failed reply. Do not mark Step 2
+fully accepted or advance to the actor until these results are resolved.
+
+Credential policy clarified on 2026-10-12: iwd is the sole credential store.
+Allow iwd to auto-connect using its saved profiles. If a visible saved network
+rejects its stored credentials with a confirmed authentication failure,
+wifi-setupd must forget that specific network through iwd and return to
+provisioning so the user can supply working credentials. Do not retain a
+credential known to be rejected. An absent SSID, generic connection failure,
+timeout, DHCP failure, or backend interruption alone does not establish invalid
+credentials and must not trigger deletion. Never forget unrelated profiles.
+Explicit user-requested replacement also takes precedence: overwrite the saved
+credentials for the selected SSID through iwd, even if the old credentials might
+still work. Where iwd has no replacement method, Forget the matching profile
+and connect with the submitted credentials; iwd persists the replacement on
+its own terms. If the new credentials fail, return to provisioning without
+restoring the deliberately discarded old credentials. Scope the target by SSID
+and security type so unrelated profiles remain intact. Distinguish explicit
+replacement from startup/retry operations, which must not silently erase profiles.
+These requirements supersede credential-preservation/rollback language below
+for confirmed-invalid credentials and user-requested replacement. Preserve
+unrelated profiles. Do not introduce an application credential database or copy
+iwd secrets into an application rollback store.
+
 Implement typed zbus proxies behind the daemon's internal adapter boundary for
 device discovery and object lifecycle, scans, authentication agents, connection
 errors, known networks, AP mode, DHCP status, and iwd restarts. Use the selected
 iwd version's D-Bus contract as the authority; iwdrs is optional example material
 only. Keep internal iwd bindings out of `wifi-setupd-api`.
 
+Expose saved-network metadata listing and scoped deletion now, for the connected
+management UI in Step 4. Listing must not read or expose stored secrets.
+
 Reuse the working image and Ethernet/SSH suite from Step 0 and
 [the testing plan](testing-plan.md). Run a minimal adapter probe/client before
 building the complete workflow. Investigate
-AP-to-station transitions and saved-credential replacement on the actual iwd
-version, including rollback when replacing credentials for the same SSID.
+AP-to-station transitions and explicit saved-credential replacement on the actual
+iwd version, including failure after the selected old credentials are discarded.
 
 Acceptance: actual Pi evidence for station association and IP configuration,
 AP availability and phone DHCP lease, and recovery after iwd restart.
@@ -150,6 +242,16 @@ future as insufficient to undo an already accepted iwd action: reconcile actual
 device state before starting a conflicting operation. Resubscribe and fetch a
 fresh snapshot after iwd name-owner changes, object replacement, or bus reconnect.
 
+Let iwd attempt saved-network auto-connection during a bounded startup window
+before opening the AP. Successful association and usable Wi-Fi IP configuration
+produce Idle/Ready with the provisioning AP off. Only a working Wi-Fi station
+connection suppresses automatic AP provisioning; Ethernet connectivity does not.
+Ethernet remains available for management while testing the disconnected/AP path.
+A confirmed rejection of stored credentials for a visible
+network triggers scoped Forget through the adapter, then provisioning. If iwd's
+automatic attempt exposes only a generic failure, obtain sufficient evidence
+before classifying the credentials as invalid; visibility alone is not proof.
+
 Acceptance: first boot, successful connection, repeated requests, timeout,
 Stop during a transition, stale result rejection, and client reconnection all
 pass deterministic tests. Daemon stays running after successful provisioning.
@@ -157,12 +259,21 @@ pass deterministic tests. Daemon stays running after successful provisioning.
 ## 4. Recovery and the portal
 
 Implement AP/station sequencing, retry policy, and durable credential handling.
-Prove preservation of previously working credentials before destructive profile
-replacement. Define staging, commit, rollback, file permissions, and crash
-recovery from evidence about iwd's storage behavior; avoid a second competing
-credential database without a demonstrated need.
+Apply the removal and explicit replacement policies from Step 2. Do not restore
+credentials that were rejected or deliberately overwritten. Preserve unrelated
+profiles, and define crash recovery around iwd's own persistence behavior. iwd
+is the sole credential store; no application credential database or secret
+backup/rollback store is permitted.
 
 Add Axum endpoints, then the Dioxus 0.7 web client using the repository skill.
+Keep the HTTP server running whether Wi-Fi is connected or disconnected. In
+disconnected/AP mode, focus the UI on seamless onboarding. In connected station
+mode, serve the UI on the device's Wi-Fi LAN address and offer connection status
+plus listing/deletion of old saved networks through iwd. Success changes the UI
+mode rather than shutting down the server. A radio/address transition can
+temporarily interrupt reachability; the server process itself stays available.
+Define access control for saved-network mutations before exposing them on the
+station LAN. Deletion is an explicit user action scoped to the selected profile.
 For a single radio, scan before starting the AP, label cached results, and
 support manual SSID entry. Do not promise live AP-mode scans until measured.
 Return submission acceptance before intentionally tearing down the AP; the UI
@@ -172,8 +283,9 @@ failure. Restore a usable portal with the error after failed attempts.
 Start with direct local-IP navigation. Determine required DNS and OS probe
 responses from phone testing; an HTTP page with DHCP alone does not establish
 captive-portal discovery. Add a small local DNS responder only when needed.
-Bind the provisioning surface to the intended AP interface/address, validate
-requests, and avoid credential exposure in logs, URLs, or public status.
+Serve on the intended Wi-Fi AP/station interface addresses as they change;
+do not unintentionally expose management on every interface. Validate requests
+and avoid credential exposure in logs, URLs, or public status.
 
 Acceptance: end-to-end onboarding and bad-password retry in the simulator and
 on the Pi; success requires Wi-Fi association and usable Wi-Fi IP configuration,
@@ -198,7 +310,8 @@ Tests are added with their components, not postponed until this final milestone.
 
 ## Next implementation slice
 
-Begin Step 1 by defining public provisioning state/error representations and
-Start/Stop semantics, then typed zbus proxies and private-bus contract tests.
-Keep the internal Wi-Fi adapter boundary mockable and separate from the public
-API. Use the established Ethernet suite for subsequent Pi iterations.
+Finish Step 2 hardware acceptance using the isolated probe: phone joins AP and
+gets DHCP, return to station, and qualify security modes plus explicit
+credential replacement on a network approved for those mutations. Preserve the
+working user profile unless the user explicitly requests its replacement or
+deletion. Then proceed to the Step 3 provisioning actor.

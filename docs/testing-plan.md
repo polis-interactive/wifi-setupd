@@ -6,6 +6,11 @@ commands, and logs while iwd controls Wi-Fi. The SSH workflow belongs in this
 repository and uses standard protocols; it has no SBC-controller or Pico dependency.
 Ethernet is the primary development transport. Wi-Fi is the interface under test,
 and optional Wi-Fi reachability checks do not change the management connection.
+Only a working Wi-Fi station connection suppresses the provisioning AP; Ethernet
+connectivity does not. For the current fresh-credential phone/AP test, the user
+requested removal of the Pi's saved `Waller Creek Assembly Plant` profile;
+that scoped removal is complete. Keep Ethernet management. Do not reconnect to the router
+before the phone test is complete unless the user requests it.
 
 **Current status (2026-10-12):** the `polis-rpi4-dev` image is built and installed.
 Ethernet mDNS resolution and key-based SSH succeeded; `polis-dev-check` passed
@@ -138,20 +143,61 @@ zbus adapter. Application work begins only after this sequence passes.
 
 ## Tests after Step 0
 
-The scaffold currently has zero behavioral tests. Add deterministic tests with
-each application component: simulated Wi-Fi that cannot fall back to real iwd,
-temporary storage, controllable time, and a private D-Bus. Inject the private
-bus connection explicitly; a session address does not redirect system-bus clients.
-Test the public service/client contract separately from the adapter's fake-iwd
-contract. The UI later uses a simulated HTTP backend.
+Steps 1–2 now have sixteen behavioral tests and one compiling doctest. Run
+`cargo test --workspace --locked --offline`; the only external test executable
+is `dbus-daemon`. The public contract fixture starts a private bus on a temporary
+Unix socket, injects both connections explicitly, bounds the test to 10 seconds,
+and kills/reaps the bus on teardown. No root or host session/system bus is used.
+A sandbox must permit that local socket; inability to start the bus is a failure,
+never a skipped test or a fallback to the host bus.
+
+The Wi-Fi script rejects unexpected calls and uses paused Tokio time plus a
+temporary directory for non-secret mock metadata. It exercises success,
+authentication failure, timeout, explicit reconciliation, status publication,
+and redacted Debug output. These are foundation tests, not evidence that the
+future actor cancels real iwd actions or preserves real credentials.
+
+Compile the independent client with
+`cargo check --manifest-path tests/api-consumer/Cargo.toml --locked --offline --target-dir target/api-consumer`.
+It has a separate workspace and lockfile so daemon features cannot mask missing
+API dependencies. Do not run it against the host bus for local acceptance.
+Check package contents with
+`cargo package -p wifi-setupd-api --list --allow-dirty --offline`; its explicit
+allowlist includes only public source, a consumer example, documentation, and
+Cargo metadata. Normal API dependencies exclude the daemon and development suite.
+
+Add deterministic tests with each subsequent component. Test the public
+service/client contract separately from the adapter's fake-iwd contract.
+Step 2's private-bus fake now covers scans, auth callbacks, AP/station transitions,
+replacement/deletion scope, iwd/device replacement, and cancellation including
+late mode-change completion. The UI later uses a simulated HTTP backend.
+
+The isolated [iwd probe](../dev/iwd-probe/README.md) builds and runs on the Pi.
+Hardware discovery/scanning, station association with Wi-Fi IPv4, AP startup
+using an iwd `DisableHT=true` profile, explicit AP stop, and recovery across iwd
+restart pass. AP startup returns while iwd keeps the AP running; there is no
+automatic shutdown timer. Phone association/DHCP passed: the user reported
+`192.168.16.2`, with the Pi independently observed at `192.168.16.1/28` and one
+associated client. AP-to-station discovery/reconciliation timing, security-mode
+coverage, and explicit profile
+replacement remain pending. Normal Wi-Fi is valid for connection acceptance;
+leave a successful user profile saved in iwd. Use a disposable profile or explicit
+user direction before destructive replacement/deletion tests.
 
 | Scenario group | Local evidence | Pi evidence |
 | --- | --- | --- |
 | First boot and success | No credentials → AP → connect → Idle; daemon remains callable | Phone joins AP, obtains DHCP, submits credentials, Pi joins target Wi-Fi without Internet |
 | Failure and retry | Wrong password, unavailable network, timeout, repeated commands, stale results | Failure restores usable AP; retry succeeds; transient loss avoids switching loops |
+| Rejected saved credentials | Visible saved network plus confirmed authentication rejection → scoped iwd Forget → provisioning; preserve unrelated profiles and do not delete for timeout/DHCP/backend failures | Change the dedicated test AP password, confirm rejection of the old saved credentials, verify their removal and successful onboarding with the new password |
 | Interruptions | Cancellation, iwd object replacement, bus/service restart | Restart processes and reboot over SSH; manual power interruption separately verifies power-loss recovery |
-| Persistence and API | Prior credentials survive failed replacement including same SSID; clients resynchronize | Credentials survive reboot/interrupted updates; no secrets in logs, properties, or signals |
+| Persistence and API | Explicit same-SSID replacement discards old credentials even if the new attempt fails; unrelated profiles survive; clients resynchronize | iwd persists successful replacement across reboot; failed replacement returns to provisioning without restoring old credentials; no secrets in logs, properties, or signals |
 | Portal and release | HTTP validation, UI reconnect, offline assets, dependency/package checks | Mobile captive behavior, direct-IP fallback, BusyBox startup, read-only root, development tools absent from release image |
+
+Step 4 also verifies that HTTP stays running across AP/station transitions:
+disconnected users see onboarding; connected users can reach the UI at the
+Wi-Fi LAN address and list/delete selected saved networks. Confirm deletion
+preserves unrelated profiles and that LAN mutations require the chosen access
+control. A brief address/radio transition is not a server shutdown.
 
 Mocks cannot establish driver support or mobile captive discovery. Verify Wi-Fi
 success on its interface; a successful unbound ping may use Ethernet instead.

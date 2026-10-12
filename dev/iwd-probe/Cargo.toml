@@ -1,0 +1,12 @@
+[package]
+name = "wifi-setupd-iwd-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+wifi-setupd = { path = "../../crates/wifi-setupd" }
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
+tokio = { version = "1.53.2", features = ["macros", "rt", "time", "signal"] }

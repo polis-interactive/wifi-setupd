@@ -14,6 +14,12 @@ publish = false
 
 [workspace.dependencies]
 wifi-setupd-api = { path = "crates/wifi-setupd-api" }
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.2", features = ["macros", "rt", "sync", "time"] }
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
+tempfile = "3.27.0"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+nix = { version = "0.31.3", default-features = false, features = ["net"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
