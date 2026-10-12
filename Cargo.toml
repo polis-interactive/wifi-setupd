@@ -20,6 +20,7 @@ zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
 tempfile = "3.27.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 nix = { version = "0.31.3", default-features = false, features = ["net"] }
+kameo = { version = "0.22.2", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

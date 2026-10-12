@@ -8,12 +8,14 @@ include = ["src/**", "Cargo.toml"]
 
 [dependencies]
 wifi-setupd-api.workspace = true
-tokio.workspace = true
 zbus.workspace = true
 nix.workspace = true
+kameo.workspace = true
+tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+futures-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

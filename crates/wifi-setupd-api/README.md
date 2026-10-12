@@ -43,7 +43,8 @@ means the command was accepted, not that the radio transition is complete.
 
 | Request / current state | Required behavior |
 | --- | --- |
-| Start in `Idle` or `Failed` | If backend available, accept a new workflow, clear LastError, publish `StartingAccessPoint` |
+| Start in `Idle` or `Failed` with `Ready` Wi-Fi | Idempotent success; preserve the working connection and keep the AP off |
+| Start in `Idle` or `Failed` without `Ready` Wi-Fi | If backend available, accept a new workflow, clear LastError, publish `StartingAccessPoint` |
 | Start during an active workflow except `Stopping` | Idempotent success; do not restart, clear LastError, or create another operation |
 | Start in `Stopping` | Reject with `tv.polis.WifiSetup1.Error.Busy` |
 | Start in `Idle` or `Failed` with unavailable backend | Reject with `tv.polis.WifiSetup1.Error.BackendUnavailable`; leave status unchanged |
@@ -92,8 +93,10 @@ Use `futures_util::StreamExt::next` on `updates` and `.get().await` on each
 property notification to obtain the latest typed snapshot. Subscribe before
 issuing commands. `receive_provisioning_completed()` subscribes to completion.
 See `examples/status.rs` for a runnable read-only consumer accepting an explicit
-private-bus address. The service is not yet started by the daemon scaffold;
-Step 1 exports a test fixture only, with the production actor/service in Step 3.
+private-bus address. The daemon now exports the production actor/service; see
+[`docs/provisioner.md`](../../docs/provisioner.md) for startup configuration.
+The public D-Bus interface remains Start/Stop and status. The later HTTP portal
+will use the daemon's internal credential-submission entry point.
 
 The bindings follow the upstream [zbus proxy documentation](https://docs.rs/zbus/5.19.0/zbus/attr.proxy.html)
 and [zvariant type documentation](https://docs.rs/zvariant/5.15.0/zvariant/derive.Type.html).

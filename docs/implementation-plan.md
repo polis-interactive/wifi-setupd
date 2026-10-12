@@ -5,9 +5,11 @@ image; the Ethernet update suite passed hardware acceptance, including rollback
 and reboot persistence. iwd joined Wi-Fi, obtained an address, and passed Wi-Fi
 ping/SSH checks. The selected credentials were forgotten and stayed absent after
 iwd restart and Pi reboot. **Step 1 is complete:** public API and local test
-foundation. **Step 2 is in progress:** the direct zbus iwd adapter is implemented;
-local tests and initial Pi checks pass, with remaining hardware acceptance below.
-Remaining milestones describe planned work and require acceptance before advancing.
+foundation. **Step 2 is implemented and accepted by the user for advancement:**
+the direct zbus adapter and phone/AP DHCP checks pass; remaining hardware
+qualification is recorded below. **Step 3 is implemented:** the Kameo actor,
+production D-Bus exporter, runtime, and deterministic acceptance tests pass.
+Step 4 is next; its HTTP/UI work has not started.
 
 Use zbus directly for iwd integration. iwdrs may be consulted for examples but
 will not be a dependency. These decisions supersede the corresponding portions
@@ -186,8 +188,9 @@ replacement/failure hardware checks; WPA2/WPA3-only/mixed qualification.
 The available network's exact negotiated security has not been established.
 IPv6-only readiness is not yet qualified. iwd 3.12's generic connection error
 does not reliably identify rejected credentials; the automatic-removal policy
-below requires stronger evidence than a generic Failed reply. Do not mark Step 2
-fully accepted or advance to the actor until these results are resolved.
+below requires stronger evidence than a generic Failed reply. The user explicitly
+accepted the Step 2 implementation and authorized Step 3; these remain documented
+hardware qualification gaps, not claims of completed coverage.
 
 Credential policy clarified on 2026-10-12: iwd is the sole credential store.
 Allow iwd to auto-connect using its saved profiles. If a visible saved network
@@ -231,6 +234,18 @@ Demonstrate supported WPA2/WPA3 combinations;
 report hardware limitations rather than pretending they are adapter failures.
 
 ## 3. Provisioning actor and public service
+
+**Implemented and locally validated.** See [actor/service design and runtime
+configuration](provisioner.md). The executable runs the production system-bus
+service using an explicit interface and preconfigured iwd AP profile. The Pi's
+running diagnostic AP was not changed or replaced during Step 3 implementation.
+
+Twenty-seven behavioral tests plus one doctest pass, including the actor, real
+adapter against fake iwd, and production D-Bus exporter in one private-bus test.
+Formatting, strict Clippy, native compilation, the independent API consumer,
+and AArch64 musl compilation pass. Hardware qualification of the new runtime,
+production image AP configuration, and remaining iwd authentication/security
+coverage remain explicit follow-up work; the HTTP portal is Step 4.
 
 Implement a single Kameo Provisioner with typed messages, operation IDs,
 bounded deadlines, cancellation, and read-only watch snapshots. Long network
@@ -310,8 +325,8 @@ Tests are added with their components, not postponed until this final milestone.
 
 ## Next implementation slice
 
-Finish Step 2 hardware acceptance using the isolated probe: phone joins AP and
-gets DHCP, return to station, and qualify security modes plus explicit
-credential replacement on a network approved for those mutations. Preserve the
-working user profile unless the user explicitly requests its replacement or
-deletion. Then proceed to the Step 3 provisioning actor.
+Step 4: implement the HTTP onboarding and connected-network management workflows,
+then the Dioxus portal. Use the actor's internal submission method with explicit
+replacement intent. Carry forward AP-to-station hardware qualification, positive
+authentication-failure classification, and WPA2/WPA3 coverage. Configure the
+production iwd AP profile in BuildrootImages before deploying the runtime.

@@ -3,8 +3,8 @@
 Standalone Wi-Fi provisioning for Buildroot appliances using iwd, a captive
 portal, and the public `tv.polis.WifiSetup1` D-Bus API.
 
-**Current stage: Steps 0 and 1 complete; Step 2 adapter implemented, hardware
-acceptance in progress.**
+**Current stage: Steps 0–3 implemented. Step 3 actor/service acceptance passes
+locally; remaining hardware qualification is tracked in the plan.**
 The [Ethernet development suite](dev/pi/README.md) cross-builds, deploys, runs,
 and rolls back the scaffold on the Pi; reboot/persistence checks pass.
 iwd connected to Wi-Fi and obtained an address; Wi-Fi ping and SSH passed.
@@ -19,8 +19,10 @@ association/IPv4, AP startup/explicit stop, and iwd restart recovery pass.
 The Pi AP uses an iwd profile with `DisableHT=true` for driver compatibility
 and stays up until explicitly stopped. Phone association and DHCP pass.
 AP-to-station transition timing and the WPA2/WPA3 matrix remain to be qualified.
-The executable still prints a scaffold message;
-the production actor/service, HTTP, and Dioxus frontend remain later milestones.
+The executable now runs the Kameo provisioner and production D-Bus service.
+It allows iwd auto-connect, starts an AP after a grace window when Wi-Fi is not
+ready, and reconciles cancellation before another radio operation. HTTP and the
+Dioxus portal remain Step 4. See [runtime configuration](docs/provisioner.md).
 
 ## Check the workspace
 
@@ -32,21 +34,22 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 cargo test --workspace --locked --offline
 cargo check --manifest-path tests/api-consumer/Cargo.toml --locked --offline --target-dir target/api-consumer
-cargo run -p wifi-setupd --locked --offline
+cargo run -p wifi-setupd --locked --offline -- --help
 ```
 
 Tests require `dbus-daemon` on PATH and permission to bind a temporary Unix
 socket, with no root privileges, host bus, host network access, or Pi. The private
 bus is explicitly injected and killed/reaped after each test. A sandbox that
 blocks Unix sockets needs a test-execution exception, not a system-bus fallback.
-Sixteen behavioral tests and one compiling doctest cover the public contract,
-scripted adapter, and fake-iwd D-Bus service.
+Twenty-seven behavioral tests and one compiling doctest cover the public
+contract, adapter, actor, production exporter, and their full private-bus path.
 The separate API consumer has its own workspace/lockfile and is compiled only,
 not run against the host system bus.
 
 Stable dependencies are locked: zbus 5.19.0 (Tokio backend), Tokio 1.53.2,
 Serde 1.0.229, nix 0.31.3 for interface-scoped address reads, plus test-only
-tempfile 3.27.0 and futures-util 0.3.34. The adapter probe cross-builds for
+tempfile 3.27.0 and futures-util 0.3.34. The daemon uses Kameo 0.22.2 without
+remote actor features. The production daemon and adapter probe cross-build for
 AArch64 musl and runs on the Pi. WASM remains deferred.
 
 ## Crates
@@ -61,8 +64,8 @@ Default Cargo members exclude the UI to keep daemon builds independent of web
 tooling. The daemon library contains the internal adapter boundary and status
 watch channel. Its library is not a stable consumer API. See the
 [public contract](crates/wifi-setupd-api/README.md) for wire values, Start/Stop,
-cancellation, LastError, and client examples. The current D-Bus exporter is a
-test fixture; the production actor/service is Step 3.
+cancellation, LastError, and client examples. The production exporter is backed
+by the [Step 3 actor](docs/provisioner.md); tests use a private bus and fake iwd.
 
 See the [iwd adapter design and limits](docs/iwd-adapter.md) and
 [development-only probe](dev/iwd-probe/README.md) for Step 2. The probe has a

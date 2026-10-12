@@ -1,9 +1,8 @@
 use super::*;
+use crate::test_bus;
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
-use zbus::{message::Header, object_server::ObjectServer};
-#[path = "test_bus.rs"]
-mod test_bus;
 use test_bus::PrivateBus;
+use zbus::{message::Header, object_server::ObjectServer};
 
 const DEVICE_PATH: &str = "/net/connman/iwd/0/3";
 const NETWORK_PATH: &str = "/net/connman/iwd/0/3/test_psk";
@@ -664,6 +663,59 @@ async fn cancelled_mode_change_cannot_arrive_after_reconciliation() {
         assert_eq!(h.state.lock().unwrap().mode, "station");
         assert!(h.adapter.pending_call.lock().await.is_none());
         assert_eq!(h.adapter.snapshot().await?.link, LinkState::Disconnected);
+        Ok(())
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn actor_and_production_service_complete_through_the_real_iwd_adapter() {
+    use crate::{
+        provisioner::{Config, Handle},
+        service::Service,
+    };
+    use futures_util::StreamExt;
+    use wifi_setupd_api::{ProvisioningState, WifiSetupProxy};
+    bounded(Duration::from_secs(10), async {
+        let h = Harness::new().await;
+        let exported = h._bus.connect().await;
+        let client = h._bus.connect().await;
+        let handle = Handle::spawn(
+            h.adapter,
+            Config {
+                startup_grace: Duration::ZERO,
+                poll_interval: Duration::from_millis(5),
+                operation_timeout: Duration::from_secs(3),
+                cleanup_timeout: Duration::from_secs(1),
+                automatic: true,
+            },
+        )
+        .unwrap();
+        let service = Service::attach(exported.clone(), handle.clone())
+            .await
+            .unwrap();
+        let proxy = WifiSetupProxy::builder(&client)
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .unwrap();
+        let mut completed = proxy.receive_provisioning_completed().await.unwrap();
+        let mut status = handle.subscribe();
+        while status.borrow().state != ProvisioningState::AwaitingCredentials {
+            status.changed().await.unwrap();
+        }
+        handle.submit(credentials(), false).await.unwrap();
+        completed.next().await.unwrap();
+        let ready = proxy.status().await.unwrap();
+        assert_eq!(ready.state, ProvisioningState::Idle);
+        assert_eq!(ready.link, LinkState::Ready);
+        assert_eq!(h.state.lock().unwrap().connects, 1);
+        assert_eq!(h.state.lock().unwrap().mode, "station");
+        assert!(!h.state.lock().unwrap().ap);
+        handle.shutdown().await.unwrap();
+        drop(service);
+        exported.close().await.unwrap();
         Ok(())
     })
     .await

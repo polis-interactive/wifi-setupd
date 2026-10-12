@@ -76,6 +76,7 @@ struct Pending {
 
 pub struct IwdAdapter<A = InterfaceAddresses> {
     connection: Connection,
+    reconnect_system_bus: bool,
     interface: String,
     addresses: A,
     options: Options,
@@ -88,6 +89,23 @@ pub struct IwdAdapter<A = InterfaceAddresses> {
 }
 
 impl<A: AddressSource> IwdAdapter<A> {
+    /// Only production opts into reconnecting the system bus. Injected private
+    /// connections never fall back to the host bus.
+    pub fn with_system_bus_reconnection(mut self) -> Self {
+        self.reconnect_system_bus = true;
+        self
+    }
+
+    async fn ensure_connection(&mut self) -> Result<(), Error> {
+        if self.connection.is_closed() && self.reconnect_system_bus {
+            self.connection = bounded(Duration::from_secs(3), async {
+                Connection::system().await.map_err(|_| Error::Unavailable)
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
     pub fn new(
         connection: Connection,
         interface: String,
@@ -120,6 +138,7 @@ impl<A: AddressSource> IwdAdapter<A> {
         .map_err(|_| Error::Internal)?;
         Ok(Self {
             connection,
+            reconnect_system_bus: false,
             interface,
             addresses,
             options,
@@ -631,6 +650,9 @@ impl<A: AddressSource> IwdAdapter<A> {
 
 impl<A: AddressSource> Adapter for IwdAdapter<A> {
     async fn snapshot(&mut self) -> Result<Snapshot, Error> {
+        if self.ensure_connection().await.is_err() {
+            return Ok(unavailable());
+        }
         match bounded(
             self.options.operation_timeout.min(Duration::from_secs(3)),
             async { self.observed(&self.frame().await?) },
@@ -642,6 +664,7 @@ impl<A: AddressSource> Adapter for IwdAdapter<A> {
         }
     }
     async fn known_networks(&mut self) -> Result<Vec<KnownNetwork>, Error> {
+        self.ensure_connection().await?;
         bounded(self.options.operation_timeout, async {
             let mut known: Vec<_> = Self::known(&self.frame().await?)?
                 .into_iter()
@@ -653,6 +676,7 @@ impl<A: AddressSource> Adapter for IwdAdapter<A> {
         .await
     }
     async fn scan(&mut self) -> Result<Vec<Network>, Error> {
+        self.ensure_connection().await?;
         if self.pending.is_some() {
             return Err(Error::Busy);
         }
@@ -689,6 +713,7 @@ impl<A: AddressSource> Adapter for IwdAdapter<A> {
         .await
     }
     async fn apply(&mut self, operation: OperationId, action: Action) -> Result<Snapshot, Error> {
+        self.ensure_connection().await?;
         if self.pending.is_some() {
             return Err(Error::Busy);
         }
@@ -703,6 +728,7 @@ impl<A: AddressSource> Adapter for IwdAdapter<A> {
         result
     }
     async fn cancel_and_reconcile(&mut self, operation: OperationId) -> Result<Snapshot, Error> {
+        self.ensure_connection().await?;
         bounded(self.options.operation_timeout, self.reconcile(operation)).await
     }
 }

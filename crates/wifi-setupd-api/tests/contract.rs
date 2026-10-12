@@ -43,6 +43,9 @@ impl Fixture {
                 "Wi-Fi backend unavailable".into(),
             ));
         }
+        if self.status.link == LinkState::Ready {
+            return Ok(());
+        }
         self.status.state = ProvisioningState::StartingAccessPoint;
         self.status.last_error = ProvisioningError::None;
         self.publish(&emitter).await?;

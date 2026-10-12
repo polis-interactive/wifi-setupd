@@ -143,7 +143,7 @@ zbus adapter. Application work begins only after this sequence passes.
 
 ## Tests after Step 0
 
-Steps 1–2 now have sixteen behavioral tests and one compiling doctest. Run
+Steps 1–3 now have twenty-seven behavioral tests and one compiling doctest. Run
 `cargo test --workspace --locked --offline`; the only external test executable
 is `dbus-daemon`. The public contract fixture starts a private bus on a temporary
 Unix socket, injects both connections explicitly, bounds the test to 10 seconds,
@@ -168,9 +168,14 @@ Cargo metadata. Normal API dependencies exclude the daemon and development suite
 
 Add deterministic tests with each subsequent component. Test the public
 service/client contract separately from the adapter's fake-iwd contract.
-Step 2's private-bus fake now covers scans, auth callbacks, AP/station transitions,
+Step 2's private-bus fake covers scans, auth callbacks, AP/station transitions,
 replacement/deletion scope, iwd/device replacement, and cancellation including
-late mode-change completion. The UI later uses a simulated HTTP backend.
+late mode-change completion. Step 3 adds paused-time actor tests for startup
+grace, auto-connect races, a persistent AP, cancellation/cleanup retries, stale
+results, timeout recovery, and confirmed authentication rejection. The production
+exporter is tested on a private bus for completion ordering and client/service
+reconnection, including a full actor → real adapter → fake iwd connection.
+The UI later uses a simulated HTTP backend.
 
 The isolated [iwd probe](../dev/iwd-probe/README.md) builds and runs on the Pi.
 Hardware discovery/scanning, station association with Wi-Fi IPv4, AP startup
