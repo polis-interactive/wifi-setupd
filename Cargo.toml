@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/wifi-setupd",
+    "crates/wifi-setupd-api",
+    "crates/wifi-setupd-ui",
+]
+default-members = ["crates/wifi-setupd", "crates/wifi-setupd-api"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+wifi-setupd-api = { path = "crates/wifi-setupd-api" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

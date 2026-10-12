@@ -1,0 +1,18 @@
+# Copy to local/pi/config.toml. Paths are relative to the repository root.
+host = "polis-dev.local"
+port = 22
+user = "root"
+identity_file = "../BuildrootImages/local/development-ssh/id_ed25519"
+known_hosts = "local/pi/known_hosts"
+expected_serial = "REPLACE_WITH_PI_SERIAL"
+ethernet_interface = "eth0"
+wifi_interface = "wlan0"
+host_wifi_interface = "wlo1" # Only for the optional host-to-Pi Wi-Fi ping.
+buildroot_images = "../BuildrootImages"
+linker = "../BuildrootImages/output/REPLACE_WITH_OUTPUT/host/bin/aarch64-linux-gcc"
+target = "aarch64-unknown-linux-musl"
+remote_app = "/data/bin/dev-app"
+remote_service = "/etc/init.d/S90dev-app"
+remote_log = "/data/log/dev-app.log"
+command_timeout = 30
+reboot_timeout = 180
