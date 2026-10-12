@@ -65,7 +65,7 @@ def run(pi, remote_probe, command, args, secret=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=ROOT / "local/pi/config.toml")
+    parser.add_argument("--config", type=Path, default=ROOT / ".local/pi/config.toml")
     parser.add_argument("--remote-probe", default=REMOTE_PROBE)
     parser.add_argument("command", choices=["build", "deploy", "status", "monitor", "scan", "known", "connect", "replace", "connect-known", "forget", "disconnect", "ap", "stop-ap"])
     parser.add_argument("args", nargs="*")
@@ -73,11 +73,11 @@ def main():
     pi = Pi(load_config(options.config))
     if not options.remote_probe.startswith("/") or "\n" in options.remote_probe or "\x00" in options.remote_probe:
         parser.error("remote-probe must be an absolute path")
-    artifact = ROOT / "target/iwd-probe" / pi.config["target"] / "release/wifi-setupd-iwd-probe"
+    artifact = ROOT / ".target/iwd-probe" / pi.config["target"] / "release/wifi-setupd-iwd-probe"
     if options.command == "build":
         env = os.environ.copy()
         env["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"] = pi.config["linker"]
-        subprocess.run(["cargo", "build", "--manifest-path", str(MANIFEST), "--locked", "--offline", "--release", "--target", pi.config["target"], "--target-dir", str(ROOT / "target/iwd-probe")], env=env, check=True)
+        subprocess.run(["cargo", "build", "--manifest-path", str(MANIFEST), "--locked", "--offline", "--release", "--target", pi.config["target"], "--target-dir", str(ROOT / ".target/iwd-probe")], env=env, check=True)
     elif options.command == "deploy":
         validate_elf(artifact)
         with artifact.open("rb") as source:

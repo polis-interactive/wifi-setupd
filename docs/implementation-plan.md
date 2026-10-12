@@ -9,11 +9,14 @@ foundation. **Step 2 is implemented and accepted by the user for advancement:**
 the direct zbus adapter and phone/AP DHCP checks pass; remaining hardware
 qualification is recorded below. **Step 3 is implemented:** the Kameo actor,
 production D-Bus exporter, runtime, and deterministic acceptance tests pass.
-Step 4 is next; its HTTP/UI work has not started.
+**Step 4 is implemented:** Axum, the Dioxus portal and isolated simulator pass
+local browser acceptance. Pi end-to-end onboarding/retry remains to be exercised.
+See [portal commands and behavior](portal.md).
 
 Use zbus directly for iwd integration. iwdrs may be consulted for examples but
 will not be a dependency. These decisions supersede the corresponding portions
-of the archived original prompt in `requirements.md`.
+of the archived original prompt in `requirements.md`. The public D-Bus crate is
+now named `wifi-setupd-zbus-api` to distinguish it from `wifi-setupd-http-api`.
 
 ## 0. Prepare the Pi and prove the development loop
 
@@ -52,7 +55,7 @@ Provide a repo-local suite under `dev/pi/` for checking the target, remote
 commands, cross-building, uploading, starting/stopping the development process,
 collecting logs, and rebooting with bounded reconnect waits. Commit a configuration
 example; keep actual host addresses, key paths, and local settings in ignored
-`local/` files. Support both direct Ethernet and a switch-connected Pi.
+`.local/` files. Support both direct Ethernet and a switch-connected Pi.
 
 Parameterize SSH host/port/user/identity/known-hosts, Ethernet and Wi-Fi interface
 names, SDK location, and remote staging/state paths. Verify the target identity
@@ -72,7 +75,7 @@ Passed on 2026-10-12. After forgetting, after iwd restart, and after reboot,
 the selected profile was absent, the network was unknown to iwd, and Wi-Fi
 remained disconnected with no IPv4 address. Ethernet SSH returned with the
 trusted host key and expected Pi identity. Local evidence is recorded in
-`local/pi/wifi-cleanup-acceptance.log`; no credential contents were read or logged.
+`.local/pi/wifi-cleanup-acceptance.log`; no credential contents were read or logged.
 
 Use SSH to operate iwd on the Pi, initially through the development image's
 `iwctl` client. This proves the environment independently of the future zbus
@@ -94,7 +97,7 @@ starts only after Steps 0.1–0.3 pass on the real Pi.**
 ### Development and release boundary
 
 `dev/` scripts, deployment configuration, probes, and hardware
-test suites are never dependencies of `wifi-setupd` or `wifi-setupd-api`.
+test suites are never dependencies of `wifi-setupd` or `wifi-setupd-zbus-api`.
 Development image inputs stay in `BuildrootImages` and outside product packages.
 Keep any future Rust development helper in a separate Cargo workspace under
 `dev/`; do not hide it behind a product feature flag. Product build scripts must
@@ -109,7 +112,7 @@ the Step 0 support suite. A release task, if added, preserves this boundary.
 
 ## 1. Public contract and local test foundation
 
-Completed on 2026-10-12. The [public contract](../crates/wifi-setupd-api/README.md)
+Completed on 2026-10-12. The [public contract](../crates/wifi-setupd-zbus-api/README.md)
 defines string wire values, a coherent status tuple, typed proxies/errors,
 idempotent Start/Stop, cancellation reconciliation, and LastError retention.
 The daemon has a Wi-Fi adapter trait and read-only watch snapshots. Its strict
@@ -154,7 +157,7 @@ observes a successful user-entered station connection with Wi-Fi IPv4, and
 recovers in the same adapter instance across iwd restart. A shutdown read
 timeout exposed by the Pi now produces Unavailable/Unknown within three seconds;
 subsequent observations recover. Non-secret evidence is in ignored
-`local/pi/step2-station.log` and `local/pi/step2-iwd-restart.log`.
+`.local/pi/step2-station.log` and `.local/pi/step2-iwd-restart.log`.
 The working user network profile was initially retained in iwd. The user later
 explicitly requested fresh-credential testing: the `Waller Creek Assembly Plant`
 profile has now been forgotten through iwd and verified absent from its saved
@@ -169,8 +172,8 @@ the AP continues running in iwd after the probe/SSH command exits. At the user's
 request there is **no automatic AP shutdown timer**: use `stop-ap` explicitly.
 Persistent AP startup, scoped temporary-profile cleanup, and explicit return to
 station mode pass on hardware. Evidence is in ignored
-`local/pi/step2-ap-iwd-diagnostics.log`, `local/pi/step2-ap-address.log`, and
-`local/pi/step2-ap-persistent.log`. Production AP image configuration belongs in
+`.local/pi/step2-ap-iwd-diagnostics.log`, `.local/pi/step2-ap-address.log`, and
+`.local/pi/step2-ap-persistent.log`. Production AP image configuration belongs in
 BuildrootImages; phone-side DHCP is not established by the Pi's own address.
 The saved router profile reconnects to Ready afterward. An immediate connect
 before station discovery populated returned NetworkUnavailable, with an Internal
@@ -217,7 +220,7 @@ Implement typed zbus proxies behind the daemon's internal adapter boundary for
 device discovery and object lifecycle, scans, authentication agents, connection
 errors, known networks, AP mode, DHCP status, and iwd restarts. Use the selected
 iwd version's D-Bus contract as the authority; iwdrs is optional example material
-only. Keep internal iwd bindings out of `wifi-setupd-api`.
+only. Keep internal iwd bindings out of `wifi-setupd-zbus-api`.
 
 Expose saved-network metadata listing and scoped deletion now, for the connected
 management UI in Step 4. Listing must not read or expose stored secrets.
@@ -325,8 +328,16 @@ Tests are added with their components, not postponed until this final milestone.
 
 ## Next implementation slice
 
-Step 4: implement the HTTP onboarding and connected-network management workflows,
-then the Dioxus portal. Use the actor's internal submission method with explicit
-replacement intent. Carry forward AP-to-station hardware qualification, positive
-authentication-failure classification, and WPA2/WPA3 coverage. Configure the
-production iwd AP profile in BuildrootImages before deploying the runtime.
+Exercise Step 4 on the phone/Pi using [the development portal](portal.md), then
+iterate on daemon/UI behavior with real hardware evidence. Local acceptance
+covers actual WASM in mobile Chromium, bad-password retry, a lost begin response,
+connected management authorization and scoped deletion. Rust HTTP tests verify
+acceptance before teardown, idempotence, input/origin/CSRF checks and reservation
+expiry. The runtime binds only the selected Wi-Fi IPv4 addresses, and the server
+survives AP/station transitions.
+
+Carry forward AP-to-station hardware qualification, positive authentication-failure
+classification and WPA2/WPA3 coverage. The development helper provisions a private
+iwd AP fixture through a local hidden prompt; production AP configuration and
+boot/image packaging remain in BuildrootImages for Step 5. No automatic captive
+portal discovery is claimed; use the device's local IP.

@@ -12,7 +12,7 @@ the interface under test; connecting it does not change the management target.
 
 ## Configuration
 
-Copy `dev/pi/config.example.toml` to ignored `local/pi/config.toml` and fill in
+Copy `dev/pi/config.example.toml` to ignored `.local/pi/config.toml` and fill in
 the verified serial, paths, and interfaces. The current local setup is already
 configured. Relative paths resolve from the repository root. Preserve the
 compiler symlink name: Buildroot's wrapper depends on it.
@@ -27,7 +27,7 @@ application path must agree with the image's development init script.
 ```sh
 python3 dev/pi/pi.py status
 python3 dev/pi/pi.py build
-python3 dev/pi/pi.py deploy target/aarch64-unknown-linux-musl/release/wifi-setupd
+python3 dev/pi/pi.py deploy .target/aarch64-unknown-linux-musl/release/wifi-setupd
 python3 dev/pi/pi.py run
 ```
 
@@ -53,7 +53,7 @@ future application changes to persistent data.
 
 ```sh
 python3 dev/pi/pi.py exec uname -a
-python3 dev/pi/pi.py check > local/pi/readiness.log
+python3 dev/pi/pi.py check > .local/pi/readiness.log
 python3 dev/pi/pi.py reboot
 ```
 
@@ -126,4 +126,4 @@ python3 -m unittest discover -s dev/pi -p 'test_*.py'
 Unit checks cover argument quoting, error propagation, compiler symlink handling,
 ELF validation, and avoiding reboot replay. Hardware acceptance separately checks
 two different builds, execution/log retrieval, incomplete-upload rejection,
-rollback, and reboot persistence. Local evidence belongs under `local/pi/`.
+rollback, and reboot persistence. Local evidence belongs under `.local/pi/`.

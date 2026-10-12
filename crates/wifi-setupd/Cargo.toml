@@ -7,13 +7,19 @@ publish.workspace = true
 include = ["src/**", "Cargo.toml"]
 
 [dependencies]
-wifi-setupd-api.workspace = true
+wifi-setupd-zbus-api.workspace = true
 zbus.workspace = true
 nix.workspace = true
 kameo.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+wifi-setupd-http-api.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tower = { version = "0.5", features = ["util"] }
 tempfile.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

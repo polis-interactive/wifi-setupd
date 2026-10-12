@@ -1,9 +1,9 @@
-# Copy to local/pi/config.toml. Paths are relative to the repository root.
+# Copy to .local/pi/config.toml. Paths are relative to the repository root.
 host = "polis-dev.local"
 port = 22
 user = "root"
 identity_file = "../BuildrootImages/local/development-ssh/id_ed25519"
-known_hosts = "local/pi/known_hosts"
+known_hosts = ".local/pi/known_hosts"
 expected_serial = "REPLACE_WITH_PI_SERIAL"
 ethernet_interface = "eth0"
 wifi_interface = "wlan0"

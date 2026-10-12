@@ -676,7 +676,7 @@ async fn actor_and_production_service_complete_through_the_real_iwd_adapter() {
         service::Service,
     };
     use futures_util::StreamExt;
-    use wifi_setupd_api::{ProvisioningState, WifiSetupProxy};
+    use wifi_setupd_zbus_api::{ProvisioningState, WifiSetupProxy};
     bounded(Duration::from_secs(10), async {
         let h = Harness::new().await;
         let exported = h._bus.connect().await;

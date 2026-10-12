@@ -1,8 +1,11 @@
-/target/
-/tests/api-consumer/target/
-/dev/iwd-probe/target/
+/.target/
+/tests/api-consumer/.target/
+/dev/iwd-probe/.target/
 /dist/
-/local/
+/.local/
 .env
 .env.*
 !.env.example
+
+/dev/portal-sim/.target/
+__pycache__/

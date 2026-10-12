@@ -12,7 +12,7 @@ use tokio::{
     task::JoinHandle,
     time::{Instant, timeout},
 };
-use wifi_setupd_api::{
+use wifi_setupd_zbus_api::{
     BackendState, LinkState, ProvisioningError, ProvisioningState as State, Status,
 };
 
@@ -60,6 +60,8 @@ pub struct Handle<A: Adapter + 'static> {
     actor: ActorRef<Provisioner<A>>,
     status: watch::Receiver<Status>,
     publications: broadcast::Sender<Publication>,
+    adapter: Arc<Mutex<A>>,
+    networks: Arc<std::sync::Mutex<Vec<Network>>>,
 }
 impl<A: Adapter + 'static> Clone for Handle<A> {
     fn clone(&self) -> Self {
@@ -67,6 +69,8 @@ impl<A: Adapter + 'static> Clone for Handle<A> {
             actor: self.actor.clone(),
             status: self.status.clone(),
             publications: self.publications.clone(),
+            adapter: self.adapter.clone(),
+            networks: self.networks.clone(),
         }
     }
 }
@@ -80,8 +84,11 @@ impl<A: Adapter + 'static> Handle<A> {
         }
         let (status, receiver) = crate::status::channel(Status::default());
         let (publications, _) = broadcast::channel(128);
+        let adapter = Arc::new(Mutex::new(adapter));
+        let networks = Arc::new(std::sync::Mutex::new(Vec::new()));
         let actor = Provisioner::spawn(Provisioner {
-            adapter: Arc::new(Mutex::new(adapter)),
+            adapter: adapter.clone(),
+            networks: networks.clone(),
             automatic: config.automatic,
             config,
             status,
@@ -100,10 +107,25 @@ impl<A: Adapter + 'static> Handle<A> {
             actor,
             status: receiver,
             publications,
+            adapter,
+            networks,
         })
     }
     pub fn status(&self) -> Status {
         *self.status.borrow()
+    }
+    pub fn cached_networks(&self) -> Vec<Network> {
+        self.networks.lock().expect("network cache").clone()
+    }
+    pub async fn known_networks(&self) -> Result<Vec<crate::wifi::KnownNetwork>, CommandError> {
+        let mut adapter = self.adapter.try_lock().map_err(|_| CommandError::Busy)?;
+        timeout(Duration::from_secs(3), adapter.known_networks())
+            .await
+            .map_err(|_| CommandError::Busy)?
+            .map_err(|_| CommandError::BackendUnavailable)
+    }
+    pub async fn forget(&self, network: Network) -> Result<(), CommandError> {
+        self.command(Command::Forget(network)).await
     }
     pub fn subscribe(&self) -> watch::Receiver<Status> {
         self.status.clone()
@@ -176,6 +198,7 @@ enum Command {
     Start,
     Stop,
     Connect(Action),
+    Forget(Network),
 }
 struct Tick;
 struct Read;
@@ -193,12 +216,14 @@ enum Kind {
     Connect,
     Stop,
     Cleanup,
+    Forget,
 }
 enum Work {
     Start,
     Connect(Action),
     Stop { disconnect: bool },
     Cleanup(OperationId),
+    Forget(Network),
 }
 impl Work {
     fn kind(&self) -> Kind {
@@ -207,6 +232,7 @@ impl Work {
             Self::Connect(_) => Kind::Connect,
             Self::Stop { .. } => Kind::Stop,
             Self::Cleanup(_) => Kind::Cleanup,
+            Self::Forget(_) => Kind::Forget,
         }
     }
 }
@@ -221,6 +247,7 @@ enum Goal {
     Cancel,
     Fail,
     Portal,
+    Observe,
 }
 struct Recovery {
     id: OperationId,
@@ -235,6 +262,7 @@ struct Finished {
 
 pub struct Provisioner<A: Adapter + 'static> {
     adapter: Arc<Mutex<A>>,
+    networks: Arc<std::sync::Mutex<Vec<Network>>>,
     config: Config,
     automatic: bool,
     status: watch::Sender<Status>,
@@ -317,6 +345,7 @@ impl<A: Adapter + 'static> Provisioner<A> {
         let kind = work.kind();
         let (cancel, receiver) = oneshot::channel();
         let adapter = self.adapter.clone();
+        let networks = self.networks.clone();
         let config = self.config.clone();
         let weak = actor.downgrade();
         let task = tokio::spawn(async move {
@@ -328,7 +357,7 @@ impl<A: Adapter + 'static> Provisioner<A> {
             let result = tokio::select! {
                 biased;
                 _ = receiver => Err(Error::Cancelled),
-                result = timeout(config.operation_timeout, perform(&mut *adapter, work, id, &weak)) => result.unwrap_or(Err(Error::Timeout)),
+                result = timeout(config.operation_timeout, perform(&mut *adapter, work, id, &weak, &networks)) => result.unwrap_or(Err(Error::Timeout)),
             };
             let cleanup = match &result {
                 Ok(snapshot) => Ok(snapshot.clone()),
@@ -382,6 +411,13 @@ impl<A: Adapter + 'static> Provisioner<A> {
             self.publish(status, false);
             self.launch(Work::Start, actor);
             return;
+        } else if matches!(goal, Goal::Observe) {
+            status.state = if snapshot.access_point_active {
+                State::AwaitingCredentials
+            } else {
+                State::Idle
+            };
+            status.last_error = error.into();
         } else {
             status.state = State::Failed;
             status.last_error = error.into();
@@ -401,8 +437,13 @@ async fn perform<A: Adapter + 'static>(
     work: Work,
     id: OperationId,
     actor: &WeakActorRef<Provisioner<A>>,
+    networks: &std::sync::Mutex<Vec<Network>>,
 ) -> Result<Snapshot, Error> {
     match work {
+        Work::Forget(network) => adapter
+            .apply(id, Action::Forget { network })
+            .await
+            .and_then(available),
         Work::Cleanup(previous) => adapter
             .cancel_and_reconcile(previous)
             .await
@@ -412,7 +453,7 @@ async fn perform<A: Adapter + 'static>(
             if snapshot.link == LinkState::Ready || snapshot.access_point_active {
                 return Ok(snapshot);
             }
-            adapter.scan().await?;
+            *networks.lock().expect("network cache") = adapter.scan().await?;
             // Auto-connect can finish during the scan; do not tear down a
             // working connection based on the earlier snapshot.
             let snapshot = available(adapter.snapshot().await?)?;
@@ -443,7 +484,7 @@ async fn perform<A: Adapter + 'static>(
             // Explicit mode transition followed by fresh discovery avoids using
             // network paths from before AP teardown.
             adapter.apply(id, Action::StopAccessPoint).await?;
-            adapter.scan().await?;
+            *networks.lock().expect("network cache") = adapter.scan().await?;
             let result = adapter.apply(id, action).await;
             if result == Err(Error::Authentication)
                 && let Some(network) = known
@@ -477,6 +518,15 @@ impl<A: Adapter + 'static> Message<Command> for Provisioner<A> {
     ) -> Self::Reply {
         let mut status = self.current();
         match command {
+            Command::Forget(network) => {
+                if self.job.is_some() || status.state.is_active() {
+                    return Err(CommandError::Busy);
+                }
+                if status.backend == BackendState::Unavailable {
+                    return Err(CommandError::BackendUnavailable);
+                }
+                self.launch(Work::Forget(network), ctx.actor_ref());
+            }
             Command::Start => {
                 if status.state == State::Stopping {
                     return Err(CommandError::Busy);
@@ -646,7 +696,11 @@ impl<A: Adapter + 'static> Message<Finished> for Provisioner<A> {
             Ok(snapshot) => {
                 let mut status = self.current();
                 Self::snapshot_into(&mut status, &snapshot);
-                if job.kind == Kind::Stop {
+                if job.kind == Kind::Forget {
+                    status.state = State::Idle;
+                    status.last_error = ProvisioningError::None;
+                    self.publish(status, false);
+                } else if job.kind == Kind::Stop {
                     self.finish_recovery(Goal::Cancel, Error::Cancelled, snapshot, ctx.actor_ref());
                 } else if snapshot.link == LinkState::Ready {
                     status.state = State::Idle;
@@ -664,6 +718,8 @@ impl<A: Adapter + 'static> Message<Finished> for Provisioner<A> {
             Err(error) => {
                 let goal = if self.cancelled {
                     Goal::Cancel
+                } else if job.kind == Kind::Forget {
+                    Goal::Observe
                 } else if job.kind == Kind::Connect {
                     Goal::Portal
                 } else {

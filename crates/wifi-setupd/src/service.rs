@@ -5,7 +5,7 @@ use crate::{
     wifi::Adapter,
 };
 use tokio::{sync::broadcast, task::JoinHandle};
-use wifi_setupd_api::{
+use wifi_setupd_zbus_api::{
     BUS_NAME, BackendState, ControlError, LinkState, OBJECT_PATH, ProvisioningError,
     ProvisioningState, Status,
 };

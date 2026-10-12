@@ -1,5 +1,5 @@
 [package]
-name = "wifi-setupd-api"
+name = "wifi-setupd-zbus-api"
 description = "Public D-Bus contract for wifi-setupd"
 version.workspace = true
 edition.workspace = true

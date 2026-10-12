@@ -2,7 +2,7 @@
 //! the sole credential store; the daemon never reads or writes its profiles.
 pub mod iwd;
 use std::{fmt, future::Future};
-use wifi_setupd_api::{BackendState, LinkState, ProvisioningError};
+use wifi_setupd_zbus_api::{BackendState, LinkState, ProvisioningError};
 
 /// Temporary input for a new connection, not a credential record. An empty
 /// password selects an open network. Never derive Debug for secrets.

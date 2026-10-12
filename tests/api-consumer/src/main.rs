@@ -1,4 +1,4 @@
-use wifi_setupd_api::{ControlError, LinkState, Status, WifiSetupProxy};
+use wifi_setupd_zbus_api::{ControlError, LinkState, Status, WifiSetupProxy};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

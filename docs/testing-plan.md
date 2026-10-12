@@ -15,15 +15,15 @@ before the phone test is complete unless the user requests it.
 **Current status (2026-10-12):** the `polis-rpi4-dev` image is built and installed.
 Ethernet mDNS resolution and key-based SSH succeeded; `polis-dev-check` passed
 on the Pi 4B, verifying storage, D-Bus, iwd, and Wi-Fi discovery. The initial
-record and reusable SSH configuration are in ignored `local/pi/` files.
+record and reusable SSH configuration are in ignored `.local/pi/` files.
 The [parameterized update suite](../dev/pi/README.md) passed real-Pi checks for
 two AArch64 builds, execution/log retrieval, incomplete-upload rejection,
 rollback, and reboot/reconnect with persistent state and trusted SSH identity.
-Evidence is in `local/pi/update-acceptance.log`. Wi-Fi connected and obtained
+Evidence is in `.local/pi/update-acceptance.log`. Wi-Fi connected and obtained
 an address; ping and SSH over Wi-Fi succeeded. Scoped credential removal passed
 after forgetting, iwd restart, and Pi reboot: no saved test profile, no known
 test network, no Wi-Fi reconnection, and Ethernet access restored. Cleanup
-evidence is in `local/pi/wifi-cleanup-acceptance.log`.
+evidence is in `.local/pi/wifi-cleanup-acceptance.log`.
 [Steps 0.1–0.3](implementation-plan.md) are complete.
 The daemon will use zbus directly, without iwdrs.
 
@@ -47,7 +47,7 @@ The development suite and local configuration now exist at these paths.
 | --- | --- | --- |
 | `../BuildrootImages/` | Development image profile/overlays, build entry point, pinned build inputs | BuildrootImages development image tooling only |
 | `dev/pi/` | SSH configuration example, remote commands, updates, logs, readiness checks | Repository development tooling only |
-| `local/` | Actual target settings, protected credential inputs, SDK/output paths, captured results | Ignored local data |
+| `.local/` | Actual target settings, protected credential inputs, SDK/output paths, captured results | Ignored local data |
 | `crates/` | Daemon, public API, and web UI | Product build/package inputs |
 
 Any Rust development helper gets a separate workspace under `dev/`. Product
@@ -158,11 +158,11 @@ and redacted Debug output. These are foundation tests, not evidence that the
 future actor cancels real iwd actions or preserves real credentials.
 
 Compile the independent client with
-`cargo check --manifest-path tests/api-consumer/Cargo.toml --locked --offline --target-dir target/api-consumer`.
+`cargo check --manifest-path tests/api-consumer/Cargo.toml --locked --offline --target-dir .target/api-consumer`.
 It has a separate workspace and lockfile so daemon features cannot mask missing
 API dependencies. Do not run it against the host bus for local acceptance.
 Check package contents with
-`cargo package -p wifi-setupd-api --list --allow-dirty --offline`; its explicit
+`cargo package -p wifi-setupd-zbus-api --list --allow-dirty --offline`; its explicit
 allowlist includes only public source, a consumer example, documentation, and
 Cargo metadata. Normal API dependencies exclude the daemon and development suite.
 
@@ -220,5 +220,21 @@ preserves that boundary. Add explicit package and image install allowlists.
 Inspect product dependency graphs, crate package file lists, and release-image
 contents. Verify that Step 0 scripts, probes, deployment settings, SSH access
 configuration, credentials, and development services are absent. Compile an
-independent API consumer to demonstrate that importing `wifi-setupd-api` does
+independent API consumer to demonstrate that importing `wifi-setupd-zbus-api` does
 not require the development suite.
+
+## Step 4 portal acceptance
+
+The [portal workflow](portal.md) builds actual Dioxus WASM assets and deploys the
+runtime over verified Ethernet. Local mobile Chromium acceptance uses the real
+HTTP server and actor with an in-memory adapter: authentication failure/retry,
+lost-response guidance, connection success, authorization and scoped deletion
+pass. All assets load locally; passwords stay out of URLs and browser storage.
+
+Next hardware check: join `wifi-setupd-test`, open `http://192.168.16.1`, submit
+router credentials through the page, then verify the portal at the station LAN
+address. Also exercise an incorrect password and AP restoration/retry. The
+start helper provisions the AP's iwd-owned test profile if missing; it asks for
+the setup AP passphrase locally. It never reconnects to the router on its own,
+and the AP has no shutdown timer. Keep successful router credentials in iwd for
+connected-management testing; scoped deletion remains an explicit user action.

@@ -2,12 +2,12 @@
 
 Step 3 implements a single Kameo 0.22.2 actor, a production zbus exporter, and
 the daemon executable. The API crate remains independent of Kameo and iwd.
-HTTP endpoints and the phone portal are Step 4; the daemon has no web UI yet.
+Step 4 adds the [HTTP server and phone portal](portal.md).
 
 ## Runtime configuration
 
 ```sh
-wifi-setupd --interface wlan0 --ap-profile wifi-setupd
+wifi-setupd --interface wlan0 --ap-profile wifi-setupd --web-root /usr/share/wifi-setupd/web
 ```
 
 The interface and iwd AP profile SSID are explicit, non-secret arguments.
@@ -34,7 +34,7 @@ restart; Stop in Idle preserves any working Wi-Fi connection.
 ## Ownership and cancellation
 
 `provisioner::Handle` exposes Start, Stop, status subscriptions, and internal
-credential submission / saved-network connection methods for later HTTP code.
+credential submission, cached discovery, saved-network metadata and deletion methods.
 Submission is accepted only while AwaitingCredentials. Replacement intent is
 explicit; neither messages nor public errors contain backend diagnostic text.
 Credentials are temporary worker input; only iwd persists station credentials.

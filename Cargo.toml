@@ -2,10 +2,11 @@
 resolver = "3"
 members = [
     "crates/wifi-setupd",
-    "crates/wifi-setupd-api",
+    "crates/wifi-setupd-zbus-api",
     "crates/wifi-setupd-ui",
+    "crates/wifi-setupd-http-api",
 ]
-default-members = ["crates/wifi-setupd", "crates/wifi-setupd-api"]
+default-members = ["crates/wifi-setupd", "crates/wifi-setupd-zbus-api"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,7 +14,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-wifi-setupd-api = { path = "crates/wifi-setupd-api" }
+wifi-setupd-zbus-api = { path = "crates/wifi-setupd-zbus-api" }
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.53.2", features = ["macros", "rt", "sync", "time"] }
 zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
@@ -21,6 +22,10 @@ tempfile = "3.27.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 nix = { version = "0.31.3", default-features = false, features = ["net"] }
 kameo = { version = "0.22.2", default-features = false }
+wifi-setupd-http-api = { path = "crates/wifi-setupd-http-api" }
+axum = "0.8.9"
+tower-http = { version = "0.6", features = ["fs"] }
+serde_json = "1.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

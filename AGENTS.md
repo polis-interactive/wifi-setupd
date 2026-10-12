@@ -12,7 +12,7 @@ Keep the public API independent of iwd and Kameo. Keep the UI independent of
 daemon internals. Add dependencies when used, with compatible stable versions
 and a committed lockfile. Verify formatting, compilation, and relevant behavior.
 
-For Dioxus changes, load `skills/dioxus-web/SKILL.md` and follow its official
+For Dioxus changes, load `.agents/skills/dioxus-web/SKILL.md` and follow its official
 0.7 documentation links. This path is repository-local and loaded explicitly.
 
 ## Test environments
@@ -30,7 +30,7 @@ and deployment configuration under `dev/`; any Rust helper there uses a separate
 workspace. Product crates
 and build scripts must not depend on or invoke this suite. Release artifacts,
 library packages, and production images exclude it through explicit packaging
-boundaries. Keep target-specific settings and secrets in ignored `local/` files.
+boundaries. Keep target-specific settings and secrets in ignored `.local/` files.
 
 ## User interaction
 

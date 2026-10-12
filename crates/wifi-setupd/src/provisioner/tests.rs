@@ -371,7 +371,7 @@ use crate::test_bus;
 async fn production_dbus_exports_properties_completion_and_fresh_status_after_reconnect() {
     use crate::service::Service;
     use futures_util::StreamExt;
-    use wifi_setupd_api::{OBJECT_PATH, WifiSetupProxy};
+    use wifi_setupd_zbus_api::{OBJECT_PATH, WifiSetupProxy};
     timeout(Duration::from_secs(10), async {
         let bus = test_bus::PrivateBus::start().await;
         let server = bus.connect().await;
@@ -395,7 +395,7 @@ async fn production_dbus_exports_properties_completion_and_fresh_status_after_re
             .await
             .unwrap();
         let introspection = zbus::fdo::IntrospectableProxy::builder(&client)
-            .destination(wifi_setupd_api::BUS_NAME)
+            .destination(wifi_setupd_zbus_api::BUS_NAME)
             .unwrap()
             .path(OBJECT_PATH)
             .unwrap()
@@ -455,7 +455,7 @@ async fn production_dbus_exports_properties_completion_and_fresh_status_after_re
 
 #[tokio::test]
 async fn production_dbus_stop_does_not_wait_for_the_connection_worker() {
-    use wifi_setupd_api::{ControlError, WifiSetupProxy};
+    use wifi_setupd_zbus_api::{ControlError, WifiSetupProxy};
     timeout(Duration::from_secs(10), async {
         let bus = test_bus::PrivateBus::start().await;
         let server = bus.connect().await;

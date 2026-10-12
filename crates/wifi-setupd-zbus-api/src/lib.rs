@@ -3,7 +3,7 @@
 //!
 //! ```no_run
 //! # async fn example(connection: &zbus::Connection) -> Result<(), Box<dyn std::error::Error>> {
-//! use wifi_setupd_api::WifiSetupProxy;
+//! use wifi_setupd_zbus_api::WifiSetupProxy;
 //! let wifi = WifiSetupProxy::new(connection).await?;
 //! let status = wifi.status().await?;
 //! println!("{:?}: {:?}", status.state, status.link);

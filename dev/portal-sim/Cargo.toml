@@ -1,0 +1,11 @@
+[package]
+name = "wifi-setupd-portal-sim"
+version = "0.1.0"
+edition = "2024"
+publish = false
+[workspace]
+[dependencies]
+wifi-setupd = { path = "../../crates/wifi-setupd" }
+wifi-setupd-zbus-api = { path = "../../crates/wifi-setupd-zbus-api" }
+axum = "0.8.9"
+tokio = { version = "1.53.2", features = ["macros", "rt", "time", "signal"] }

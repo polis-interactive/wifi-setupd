@@ -1,7 +1,7 @@
 mod support;
 
 use futures_util::StreamExt;
-use wifi_setupd_api::{
+use wifi_setupd_zbus_api::{
     BUS_NAME, BackendState, ControlError, INTERFACE_NAME, LinkState, OBJECT_PATH,
     ProvisioningError, ProvisioningState, Status, WifiSetupProxy,
 };

@@ -100,7 +100,7 @@ class Pi:
             "cargo", "build", "--locked", "--release", "-p", "wifi-setupd",
             "--target", c["target"],
         ], cwd=ROOT, env=env, check=True)
-        print(ROOT / "target" / c["target"] / "release/wifi-setupd")
+        print(ROOT / ".target" / c["target"] / "release/wifi-setupd")
 
     def deploy(self, artifact):
         validate_elf(artifact)
@@ -180,7 +180,7 @@ def validate_elf(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=ROOT / "local/pi/config.toml")
+    parser.add_argument("--config", type=Path, default=ROOT / ".local/pi/config.toml")
     commands = parser.add_subparsers(dest="action", required=True)
     for action in ("status", "check", "build", "run", "start", "stop", "logs", "rollback", "reboot", "wifi-status", "wifi-ping"):
         commands.add_parser(action)

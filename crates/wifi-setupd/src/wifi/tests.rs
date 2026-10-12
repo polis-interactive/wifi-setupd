@@ -1,6 +1,6 @@
 use super::*;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
-use wifi_setupd_api::{ProvisioningState, Status};
+use wifi_setupd_zbus_api::{ProvisioningState, Status};
 
 #[derive(Debug, PartialEq, Eq)]
 enum Request {

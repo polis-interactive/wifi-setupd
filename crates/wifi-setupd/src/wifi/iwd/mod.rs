@@ -17,7 +17,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-use wifi_setupd_api::{BackendState, LinkState};
+use wifi_setupd_zbus_api::{BackendState, LinkState};
 use zbus::{
     Connection,
     fdo::{DBusProxy, ManagedObjects, ObjectManagerProxy},

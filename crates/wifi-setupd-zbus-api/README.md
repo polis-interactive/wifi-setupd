@@ -1,4 +1,4 @@
-# wifi-setupd-api
+# wifi-setupd-zbus-api
 
 Public version 1 contract for `tv.polis.WifiSetup1`, object
 `/tv/polis/WifiSetup1`, interface `tv.polis.WifiSetup1`. The crate contains typed
@@ -78,7 +78,7 @@ cancellation, or a repeated request.
 ## Rust client
 
 ```rust,no_run
-use wifi_setupd_api::WifiSetupProxy;
+use wifi_setupd_zbus_api::WifiSetupProxy;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 let connection = zbus::Connection::system().await?;
