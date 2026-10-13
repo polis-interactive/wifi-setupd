@@ -3,8 +3,8 @@
 Standalone Wi-Fi provisioning for Buildroot appliances using iwd, a captive
 portal, and the public `tv.polis.WifiSetup1` D-Bus API.
 
-**Current stage: Steps 0–4 implemented. The local portal passes mobile browser
-acceptance; Pi end-to-end qualification remains tracked in the plan.**
+**Current stage: Steps 0–4 complete; Step 4 accepted by the user on 2026-10-13.
+Step 5 product packaging is ready for BuildrootImages integration.**
 The [Ethernet development suite](dev/pi/README.md) cross-builds, deploys, runs,
 and rolls back the scaffold on the Pi; reboot/persistence checks pass.
 iwd connected to Wi-Fi and obtained an address; Wi-Fi ping and SSH passed.
@@ -23,8 +23,8 @@ The executable now runs the Kameo provisioner and production D-Bus service.
 It allows iwd auto-connect, starts an AP after a grace window when Wi-Fi is not
 ready, and reconciles cancellation before another radio operation. The HTTP
 portal now supports onboarding, retry and connected-network management.
-AP-only DNS and HTTP probe redirects provide captive discovery; iPhone sign-in
-sheet presentation is the next hardware check.
+AP-only DNS and HTTP probe redirects provide captive discovery. Remaining
+security-mode and failure qualification is tracked under Step 5.
 See [run the portal](docs/portal.md) and [runtime configuration](docs/provisioner.md).
 
 ## Preview the UI locally
@@ -90,6 +90,11 @@ running after connection and offers saved-network management in station mode.
 
 ## Working plan
 
+Buildroot integration agents: start with [the build/install handoff](docs/buildroot.md).
+`python3 build-support/release.py` exposes separate web, daemon and staging
+install commands. Production builds require no `dev/` tooling or `.local/` data.
+`cargo make release` is the equivalent local build convenience task.
+
 Production integration agents: read the [per-device password handoff](docs/device-provisioning.md).
 BuildrootImages must provision one shared AP/management password per device,
 independently of image builds, and support rotation without a rebuild.
@@ -97,10 +102,8 @@ independently of image builds, and support rotation without a rebuild.
 1. [Pi readiness and testing](docs/testing-plan.md): first create the development
    image, establish parameterized Ethernet/SSH updates, and prove iwd can connect
    and forget test credentials on the Pi.
-2. [Implementation milestones](docs/implementation-plan.md): Step 0 must pass
-   before application implementation; iwd integration uses zbus directly.
-3. [Original requirements](docs/requirements.md): the supplied prompt, retained
-   verbatim. The current milestones supersede its iwdrs evaluation requirement.
+2. [Original requirements](docs/requirements.md): the supplied prompt, retained
+   verbatim. The project uses zbus directly instead of iwdrs.
 
 Development image profiles, overlays, and build inputs belong in `BuildrootImages`.
 This repo's SSH/deployment support belongs under `dev/`, outside the product dependency graph.

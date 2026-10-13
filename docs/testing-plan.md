@@ -24,7 +24,7 @@ an address; ping and SSH over Wi-Fi succeeded. Scoped credential removal passed
 after forgetting, iwd restart, and Pi reboot: no saved test profile, no known
 test network, no Wi-Fi reconnection, and Ethernet access restored. Cleanup
 evidence is in `.local/pi/wifi-cleanup-acceptance.log`.
-[Steps 0.1–0.3](implementation-plan.md) are complete.
+Development image, update workflow and credential cleanup acceptance are complete.
 The daemon will use zbus directly, without iwdrs.
 
 ## Existing environment

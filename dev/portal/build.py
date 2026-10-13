@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -21,7 +22,8 @@ def toolchain():
 
 def main():
     dx, env = toolchain()
-    subprocess.run([dx, "build", "--platform", "web", "--release", "--package", "wifi-setupd-ui", "--locked", "--offline"], cwd=ROOT, env=env, check=True)
+    subprocess.run([sys.executable, "build-support/release.py", "web", "--dx", dx,
+                    "--offline"], cwd=ROOT, env=env, check=True)
 
 
 if __name__ == "__main__":

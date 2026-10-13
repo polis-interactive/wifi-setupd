@@ -113,7 +113,8 @@ changes, known-profile connection/deletion, failed explicit replacement without
 rollback, preservation of unrelated profiles, deadlines/reconciliation, and
 owner/device replacement. Test address readers cannot inspect host interfaces.
 
-Hardware observations and outstanding acceptance are tracked in
-`implementation-plan.md`; operator commands are in `dev/iwd-probe/README.md`.
+Hardware observations are recorded above; remaining qualification is covered in
+[the testing plan](testing-plan.md). Operator commands are in
+`dev/iwd-probe/README.md`.
 Driver WPA3 capability, real authentication failure behavior, and
 persistence timing require hardware evidence and cannot be established by mocks.
