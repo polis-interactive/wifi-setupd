@@ -7,6 +7,23 @@ workspace = false
 command = "python3"
 args = ["dev/portal/build.py"]
 
+[tasks.release-web]
+description = "Build production web assets using tools on PATH (or DX)."
+workspace = false
+command = "python3"
+args = ["build-support/release.py", "web"]
+
+[tasks.release-daemon]
+description = "Build the production daemon; honors Cargo target/linker environment."
+workspace = false
+command = "python3"
+args = ["build-support/release.py", "daemon"]
+
+[tasks.release]
+description = "Build production daemon and web assets; see docs/buildroot.md to install."
+workspace = false
+dependencies = ["release-web", "release-daemon"]
+
 [tasks.ui]
 description = "Run the local UI with TOML-configured fake Wi-Fi (no hardware)."
 workspace = false

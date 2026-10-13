@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser", default="/usr/bin/google-chrome")
+    parser.add_argument("--web-root", type=Path,
+                        default=ROOT / ".target/dx/wifi-setupd-ui/release/web/public")
     args = parser.parse_args()
-    root = ROOT / ".target/dx/wifi-setupd-ui/release/web/public"
+    root = args.web_root.resolve()
     if not (root / "index.html").is_file():
         raise RuntimeError("Build the Dioxus release assets first")
     fixture = tempfile.TemporaryDirectory(prefix="wifi-portal-browser-")

@@ -2,10 +2,10 @@
 
 ## Scope and project references
 
-Read `README.md` and the relevant plan in `docs/` before implementation.
+Read `README.md` and the relevant documentation in `docs/` before implementation.
 `docs/requirements.md` preserves the original specification. Current user
-instructions determine which milestone to implement; the specification's final
-instruction to implement everything does not override stepwise work.
+instructions determine the scope of work; the specification's final
+instruction to implement everything does not override that scope.
 
 Use zbus directly for iwd; iwdrs is example material only, never a dependency.
 Keep the public API independent of iwd and Kameo. Keep the UI independent of
@@ -17,11 +17,11 @@ For Dioxus changes, load `.agents/skills/dioxus-web/SKILL.md` and follow its off
 
 ## Test environments
 
-Complete Step 0 in `docs/implementation-plan.md` before application work:
-development image, parameterized Ethernet/SSH update workflow, then verified
-iwd connection and scoped credential cleanup on the Pi. The workflow has no
+Use the verified development image and parameterized Ethernet/SSH update
+workflow documented in `docs/testing-plan.md`, including iwd connection and
+scoped credential cleanup on the Pi. The workflow has no
 Polis SBC-controller/Pico dependency. Consult `docs/testing-plan.md` before
-adding hardware commands. Later laptop tests use mocks and a private D-Bus.
+adding hardware commands. Laptop tests use mocks and a private D-Bus.
 
 Keep development image profiles, overlays, build entry points, and pinned image
 inputs in `BuildrootImages`. Reference its checkout/profile from this repo;

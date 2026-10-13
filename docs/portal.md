@@ -207,11 +207,12 @@ connected management with the device password, scoped deletion, local-only asset
 width, and absence of secrets in URLs/browser storage.
 
 The actual WASM build, mobile Chromium flow and Rust/private-D-Bus tests pass.
-The ARM binary and offline assets are deployed to the development Pi; the binary
-executes there. The updated shared-password provisioning flow remains to be deployed and checked on hardware.
-Pi phone onboarding, failed-password AP restoration and return to station-LAN
-management remain hardware acceptance steps. WPA2/WPA3 classification and the
-broader failure matrix remain tracked in the implementation/testing plans.
+The ARM binary and offline assets run on the development Pi. The user accepted
+Step 4 as complete on 2026-10-13 and reported the latest image ready. Production
+packaging/provisioning now follows the [Buildroot handoff](buildroot.md).
+WPA2/WPA3 classification and the broader failure matrix remain tracked in the
+[testing plan](testing-plan.md). To test installed release assets, pass
+`--web-root PATH` to `dev/portal/browser_test.py`.
 
 Dioxus implementation references: [components](https://dioxuslabs.com/learn/0.7/essentials/ui/components/),
 [async work](https://dioxuslabs.com/learn/0.7/essentials/basics/async/),
