@@ -21,6 +21,8 @@ pub struct PortalState {
     pub device_key: Signal<String>,
     pub confirm: Signal<Option<Network>>,
     pub forgetting: Signal<Option<Network>>,
+    pub rejoining: Signal<bool>,
+    forget_epoch: Signal<u64>,
     pub error: Signal<ErrorNotice>,
 }
 
@@ -37,6 +39,8 @@ pub fn use_portal_state() -> PortalState {
     let device_key = use_signal(String::new);
     let confirm = use_signal(|| None::<Network>);
     let forgetting = use_signal(|| None::<Network>);
+    let rejoining = use_signal(|| false);
+    let forget_epoch = use_signal(|| 0);
     let error = use_signal(ErrorNotice::default);
     let mut state = PortalState {
         owner: current_scope_id(),
@@ -52,16 +56,41 @@ pub fn use_portal_state() -> PortalState {
         device_key,
         confirm,
         forgetting,
+        rejoining,
+        forget_epoch,
         error,
     };
     use_future(move || async move {
         loop {
             // Only reconcile a deletion with a status request started after its response.
             let reconcile_forget = !*state.busy.peek() && state.forgetting.peek().is_some();
+            let epoch = *state.forget_epoch.peek();
             match api::get_status().await {
                 Ok(mut next) => {
+                    if epoch != *state.forget_epoch.peek() {
+                        continue;
+                    }
                     if reconcile_forget && next.saved_available {
-                        state.forgetting.set(None);
+                        let selected = state.forgetting.peek().clone();
+                        if selected
+                            .as_ref()
+                            .is_some_and(|network| !next.saved.contains(network))
+                        {
+                            state.forgetting.set(None);
+                        } else if next.error.is_some() {
+                            state.rejoining.set(false);
+                            state.forgetting.set(None);
+                            state.confirm.set(selected);
+                            state
+                                .message
+                                .set("The network could not be forgotten. Please retry.".into());
+                        }
+                    }
+                    if !*state.busy.peek()
+                        && state.forgetting.peek().is_none()
+                        && (next.link == "Ready" || next.state == "AwaitingCredentials")
+                    {
+                        state.rejoining.set(false);
                     }
                     if !next.saved_available
                         && let Some(previous) = state.status.peek().as_ref()
@@ -87,10 +116,12 @@ pub fn use_portal_state() -> PortalState {
 
 impl PortalState {
     pub fn ready(self) -> bool {
-        self.status
-            .read()
-            .as_ref()
-            .is_some_and(|s| s.link == "Ready")
+        !*self.rejoining.read()
+            && self
+                .status
+                .read()
+                .as_ref()
+                .is_some_and(|s| s.link == "Ready")
     }
     pub fn awaiting(self) -> bool {
         self.status
@@ -142,14 +173,14 @@ impl PortalState {
                         .await
                         {
                             Ok(_) => self.error.write().new_attempt(),
-                            Err(error) => self.message.set(error),
+                            Err(error) => self.message.set(error.to_string()),
                         }
                     }
                     Err(_) => self
                         .message
                         .set("Could not read acceptance. Wait 30 seconds, then retry.".into()),
                 },
-                Err(error) => self.message.set(error),
+                Err(error) => self.message.set(error.to_string()),
             }
             self.busy.set(false);
         });
@@ -164,15 +195,27 @@ impl PortalState {
         self.busy.set(true);
         self.message.set(String::new());
         self.forgetting.set(Some(selected.clone()));
+        self.forget_epoch += 1;
+        self.rejoining.set(
+            status.link == "Ready"
+                && status.connected_ssid.as_deref() == Some(selected.ssid.as_str()),
+        );
         self.confirm.set(None);
         let key = self.device_key.peek().clone();
         // Requests belong to App, so changing pages does not cancel them.
         Runtime::current().spawn(self.owner, async move {
             match api::post("/api/forget", &selected, &status.csrf, &key).await {
                 Ok(_) => {}
-                Err(error) => {
+                Err(api::PostError::Rejected(error)) => {
+                    self.forget_epoch += 1;
+                    self.rejoining.set(false);
                     self.forgetting.set(None);
                     self.confirm.set(Some(selected));
+                    self.message.set(error);
+                }
+                Err(api::PostError::Uncertain(error)) => {
+                    // Disconnecting can lose the response after deletion succeeded.
+                    // Keep the reconnect screen until a fresh status reconciles it.
                     self.message.set(error);
                 }
             }

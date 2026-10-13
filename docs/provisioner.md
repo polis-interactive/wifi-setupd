@@ -46,6 +46,11 @@ An existing active AP is adopted as AwaitingCredentials. The AP has no shutdown
 timer. Explicit Stop disables automatic AP fallback until another Start or a
 restart; Stop in Idle preserves any working Wi-Fi connection.
 
+Forgetting the active saved network starts automatic AP recovery immediately
+after iwd confirms disconnection, without another startup grace window. Forgetting
+an unrelated network preserves the current connection. Recovery can also start
+an inactive AP-mode interface, where station scanning is unsupported.
+
 Production per-device secrets are set by BuildrootImages provisioning, separate
 from the shared image build. The AP passphrase and the management password must
 match. See [the integration handoff](device-provisioning.md) for storage,

@@ -1,5 +1,16 @@
 use gloo_net::http::Request;
 use wifi_setupd_http_api::{ApiError, PortalStatus};
+pub(super) enum PostError {
+    Rejected(String),
+    Uncertain(String),
+}
+impl std::fmt::Display for PostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rejected(message) | Self::Uncertain(message) => f.write_str(message),
+        }
+    }
+}
 async fn bounded<T>(
     future: impl std::future::Future<Output = Result<T, gloo_net::Error>>,
 ) -> Result<T, String> {
@@ -25,7 +36,7 @@ pub(super) async fn post<T: serde::Serialize>(
     body: &T,
     csrf: &str,
     key: &str,
-) -> Result<gloo_net::http::Response, String> {
+) -> Result<gloo_net::http::Response, PostError> {
     let request = Request::post(path).header("X-Wifi-Setup-CSRF", csrf);
     let request = if key.is_empty() {
         request
@@ -34,14 +45,21 @@ pub(super) async fn post<T: serde::Serialize>(
     };
     let request = request
         .json(body)
-        .map_err(|_| "Could not prepare request.".to_string())?;
-    let response = bounded(request.send()).await?;
+        .map_err(|_| PostError::Rejected("Could not prepare request.".to_string()))?;
+    let response = bounded(request.send())
+        .await
+        .map_err(PostError::Uncertain)?;
     if !response.ok() {
-        return Err(response
+        let message = response
             .json::<ApiError>()
             .await
             .map(|e| e.error)
-            .unwrap_or_else(|_| "Device unavailable. Please retry.".into()));
+            .unwrap_or_else(|_| "Device unavailable. Please retry.".into());
+        return Err(if response.status() < 500 {
+            PostError::Rejected(message)
+        } else {
+            PostError::Uncertain(message)
+        });
     }
     Ok(response)
 }

@@ -89,6 +89,15 @@ impl Authorities {
             })
     }
 
+    pub(super) fn redirect_authority(&self) -> String {
+        let host = self.names.first().map_or(&self.primary.0, |name| &name.0);
+        if self.primary.1 == 80 {
+            host.clone()
+        } else {
+            format!("{host}:{}", self.primary.1)
+        }
+    }
+
     pub(super) fn same_origin(&self, headers: &HeaderMap) -> bool {
         if !headers.contains_key("origin") {
             return true;

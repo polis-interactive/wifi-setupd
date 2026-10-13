@@ -11,6 +11,7 @@ struct Data {
     reject: Option<Error>,
     cleanup_blocked: bool,
     ready_during_scan: bool,
+    scan_unsupported: bool,
     saved: Vec<Network>,
 }
 impl Mock {
@@ -27,6 +28,7 @@ impl Mock {
             reject: None,
             cleanup_blocked: false,
             ready_during_scan: false,
+            scan_unsupported: false,
             saved: vec![network("test"), network("unrelated")],
         })))
     }
@@ -50,6 +52,9 @@ impl Adapter for Mock {
     async fn scan(&mut self) -> Result<Vec<Network>, Error> {
         let mut data = self.0.lock().unwrap();
         data.calls.push("scan".into());
+        if data.scan_unsupported {
+            return Err(Error::Unsupported);
+        }
         if data.ready_during_scan {
             data.snapshot.link = LinkState::Ready;
         }
@@ -100,6 +105,10 @@ impl Adapter for Mock {
                 Action::Forget { network } => {
                     data.calls.push("forget".into());
                     data.saved.retain(|saved| *saved != network);
+                    if data.snapshot.connected_ssid.as_ref() == Some(&network.ssid) {
+                        data.snapshot.connected_ssid = None;
+                        data.snapshot.link = LinkState::Disconnected;
+                    }
                 }
             }
         }
@@ -526,5 +535,43 @@ async fn connected_ssid_tracks_existing_connections_network_changes_and_disconne
     mock.0.lock().unwrap().snapshot.link = LinkState::Disconnected;
     until(&handle, |s| s.link == LinkState::Disconnected).await;
     assert_eq!(handle.network_status().1, None);
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn forgetting_current_network_restores_ap_without_startup_grace() {
+    let mock = Mock::new(LinkState::Ready);
+    mock.0.lock().unwrap().snapshot.connected_ssid = Some("test".into());
+    let handle = Handle::spawn(
+        mock.clone(),
+        Config {
+            startup_grace: Duration::from_secs(3600),
+            ..config()
+        },
+    )
+    .unwrap();
+    until(&handle, |s| s.link == LinkState::Ready).await;
+    handle.forget(network("unrelated")).await.unwrap();
+    pump().await;
+    assert_eq!(handle.status().link, LinkState::Ready);
+    assert_eq!(mock.0.lock().unwrap().calls, ["forget"]);
+    let began = Instant::now();
+    handle.forget(network("test")).await.unwrap();
+    until(&handle, |s| s.state == State::AwaitingCredentials).await;
+    assert!(began.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        mock.0.lock().unwrap().calls,
+        ["forget", "forget", "scan", "start-ap"]
+    );
+    handle.shutdown().await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn inactive_ap_interface_does_not_require_a_station_scan_to_recover() {
+    let mock = Mock::new(LinkState::Disconnected);
+    mock.0.lock().unwrap().scan_unsupported = true;
+    let handle = Handle::spawn(mock.clone(), config()).unwrap();
+    until(&handle, |s| s.state == State::AwaitingCredentials).await;
+    assert_eq!(mock.0.lock().unwrap().calls, ["scan", "start-ap"]);
     handle.shutdown().await.unwrap();
 }

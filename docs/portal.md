@@ -104,8 +104,13 @@ setup AP. The browser holds it only in memory. Deletion goes
 through the actor and iwd, preserving unrelated profiles. The UI immediately
 hides the selected network without a success notification. Rejected requests
 restore the row and reopen the confirmation with the error; subsequent status
-polls reconcile accepted requests. Deleting the current network disconnects
-Wi-Fi and allows automatic AP fallback when no working Wi-Fi connection remains.
+polls reconcile accepted requests. Confirming deletion of the current network
+immediately replaces the Connected view with instructions to rejoin the setup
+Wi-Fi. Stale Ready polls and a lost deletion response keep those instructions
+visible; a definite rejection restores the Connected view and confirmation.
+Once reachable status confirms recovery, the portal shows onboarding again.
+Deleting the current network disconnects Wi-Fi and starts automatic AP recovery
+without the startup grace period when no working Wi-Fi connection remains.
 
 All mutations and API reads require an allowed local Host (IP or hostname),
 and any Origin must match that request's Host and port. Mutations also require a per-listener CSRF token. During
@@ -245,8 +250,11 @@ port, even when both names are allowed aliases. CSRF and device-password checks
 also apply to hostname requests. Unknown names, wrong ports, malformed or
 duplicate Host/Origin values cannot access the API. No wildcard `.local`,
 forwarded-header trust, DNS lookups, or trust in network-supplied names is introduced.
-Captive probe redirects still target the fixed AP IP so discovery does not
-depend on mDNS availability.
+Captive probe redirects target the runtime-derived hostname, or the first
+explicit `--http-hostname` override. Without a configured hostname they fall
+back to the AP IP. A `.local` redirect requires working mDNS on the AP; Avahi
+must advertise on the Wi-Fi interface. The phone's sign-in window is the final
+acceptance check for hostname resolution during captive onboarding.
 
 Apple `/hotspot-detect.html` and `/library/test/success.html`, Android
 `/generate_204`, and Windows `/connecttest.txt` requests are redirected while

@@ -290,3 +290,57 @@ Evidence: `.local/pi/mdns-live-check.log`. The Avahi override is removed by rebo
 `dev/pi/mdns.py` reapplies the image-owned configuration without reflashing.
 The multihomed laptop's default resolver can still select Ethernet; a phone on
 the station Wi-Fi or an interface-scoped query tests Wi-Fi discovery directly.
+
+Runtime hostname detection was subsequently deployed with no `--http-hostname`
+argument or development `http_hostnames` override. The Pi's system hostname
+`polis-dev` enabled `polis-dev.local` for portal HTML/API (200); foreign-host API
+access remained forbidden (403). Evidence: `.local/pi/runtime-hostname-check.log`.
+During this update the user confirmed deleting the router profile through the
+portal. It remains absent and the setup AP was restored for further onboarding.
+The existing iwd exit during automatic AP transition recurred and required an
+iwd restart plus explicit AP start; runtime hostname verification does not
+qualify that unresolved transition failure.
+
+Active-network deletion now immediately shows reconnect instructions in the
+portal. Mobile Chrome acceptance covers a held deletion request, stale Ready
+polls, definite rejection/rollback, a lost response after deletion, and recovery
+to onboarding. Actor tests cover immediate fallback without startup grace,
+preserving an unrelated connection, and restarting an inactive AP interface.
+Workspace tests (46 plus one doctest), formatting, Clippy and the actual WASM
+build pass. The updated daemon/UI are deployed over verified Ethernet.
+
+The iwd failure is now confirmed as SIGSEGV (exit 139). A user-authorized private
+core inspection shows `util_address_to_string` called from
+`network_bss_property_get_address` during ObjectManager `GetManagedObjects`.
+Installed iwd 3.12/ELL 0.83 source shows network removal unregisters the parent
+object without removing its BSS children before station BSS storage is freed.
+A candidate cleanup patch is staged privately for validation; it is not yet a
+qualified image fix. Restarting iwd lets the updated daemon restore the inactive
+AP automatically. Router credentials remain absent as requested.
+
+With explicit user approval, iwd alone was subsequently rebuilt and temporarily
+installed over verified Ethernet. The fix is preserved in BuildrootImages at
+`patches/musl/iwd/0001-network-unregister-bss-objects-on-removal.patch`.
+Automatic station-to-AP fallback and three further daemon-driven station-scan/AP
+cycles passed. Repeated full ObjectManager enumeration did not crash; the same
+iwd PID survived all cycles, and no stale BasicServiceSet objects remained in
+AP mode. Captive UDP/TCP DNS, OS probe redirects and portal HTTP checks also
+passed afterward. Saved station profiles remained absent. The setup AP is left running.
+Evidence: `.local/pi/iwd-fix-acceptance.log`.
+
+The replacement is a reversible bind mount and disappears on reboot; the
+original binary is retained. The image-owned patch uses the existing global
+package-patch directory. Only the iwd package was rebuilt, not an SD image,
+kernel or toolchain. Build/rollback details are in BuildrootImages
+`docs/iwd-ap-recovery.md`. An actual phone reconnect followed by deleting its
+active router profile remains the end-to-end acceptance check.
+
+Captive redirects now prefer the daemon's runtime hostname (or first explicit
+hostname override), retaining the listener IP only when no hostname is configured.
+The ARM update is deployed. Live OS probes redirect to `http://polis-dev.local/`,
+hostname HTML/API and captive DNS checks pass, and Avahi's wlan0 service record
+resolves `polis-dev.local` to `192.168.16.1`. Eight HTTP tests and 20 development
+helper tests pass, along with formatting and Clippy. The iPhone test must stay
+inside its sign-in window: the user reports that leaving that window disconnects
+the phone, so a separate Safari test is not required. Hostname resolution inside
+the phone's captive window remains to be confirmed by rejoining the AP.

@@ -46,7 +46,8 @@ pub fn Shell(children: Element) -> Element {
             header {
                 div { class: "brand", span { class: "mark", "◉" } "wifi-setupd" }
                 span { class: if ready { "badge connected" } else { "badge" },
-                    ConnectionText { ready, switching: *switching.read(), connected: "Connected", joining: "Joining", setup: "Setup" }
+                    if *state.rejoining.read() { "Disconnecting" }
+                    else { ConnectionText { ready, switching: *switching.read(), connected: "Connected", joining: "Joining", setup: "Setup" } }
                 }
             }
             if *offline.read() {

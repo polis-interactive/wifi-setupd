@@ -75,6 +75,9 @@ def main():
     args = parser.parse_args()
     address = str(ipaddress.IPv4Address(args.ap_ip))
     pi = Pi(load_config(args.config))
+    names = pi.config.get("http_hostnames", [])
+    hostname = names[0] if names else pi.remote("exec", "hostname", capture=True).split(".")[0] + ".local"
+    hostname = hostname.rstrip(".").lower()
     interface = pi.remote("exec", "ip", "-4", "addr", "show", "dev", pi.config["wifi_interface"], capture=True)
     if f"inet {address}/" not in interface:
         raise RuntimeError("The expected AP address is not assigned to the Pi Wi-Fi interface")
@@ -107,12 +110,14 @@ def main():
                        ("www.apple.com", "/library/test/success.html"),
                        ("connectivitycheck.gstatic.com", "/generate_204")):
         code, headers = http(pi, address, host, path)
-        assert code == 302 and headers["location"] == f"http://{address}/"
+        assert code == 302 and headers["location"] == f"http://{hostname}/"
         assert headers["cache-control"] == "no-store"
     assert http(pi, address, address, "/")[0] == 200
+    assert http(pi, address, hostname, "/")[0] == 200
+    assert http(pi, address, hostname, "/api/status")[0] == 200
     assert http(pi, address, "captive.apple.com", "/api/status")[0] == 403
     assert http(pi, address, "captive.apple.com", "/api/connect", "POST")[0] == 403
-    print("PASS: OS probes redirect to the live portal; foreign-origin API access remains blocked")
+    print(f"PASS: OS probes redirect to http://{hostname}/; hostname HTML/API work; foreign-origin API access remains blocked")
     print("Next: forget/rejoin the AP on the phone and verify that the sign-in sheet opens.")
 
 

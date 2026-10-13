@@ -474,7 +474,13 @@ async fn perform<A: Adapter + 'static>(
             if snapshot.link == LinkState::Ready || snapshot.access_point_active {
                 return Ok(snapshot);
             }
-            *networks.lock().expect("network cache") = adapter.scan().await?;
+            match adapter.scan().await {
+                Ok(found) => *networks.lock().expect("network cache") = found,
+                // An inactive AP-mode interface cannot station-scan. It can
+                // still start its AP profile after backend recovery.
+                Err(Error::Unsupported) => {}
+                Err(error) => return Err(error),
+            }
             // Auto-connect can finish during the scan; do not tear down a
             // working connection based on the earlier snapshot.
             let snapshot = available(adapter.snapshot().await?)?;
@@ -719,8 +725,21 @@ impl<A: Adapter + 'static> Message<Finished> for Provisioner<A> {
                 let mut status = self.current();
                 self.snapshot_into(&mut status, &snapshot);
                 if job.kind == Kind::Forget {
-                    status.state = State::Idle;
                     status.last_error = ProvisioningError::None;
+                    if self.automatic
+                        && snapshot.link != LinkState::Ready
+                        && !snapshot.access_point_active
+                    {
+                        status.state = State::StartingAccessPoint;
+                        self.publish(status, false);
+                        self.launch(Work::Start, ctx.actor_ref());
+                        return;
+                    }
+                    status.state = if snapshot.access_point_active {
+                        State::AwaitingCredentials
+                    } else {
+                        State::Idle
+                    };
                     self.publish(status, false);
                 } else if job.kind == Kind::Stop {
                     self.finish_recovery(Goal::Cancel, Error::Cancelled, snapshot, ctx.actor_ref());

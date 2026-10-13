@@ -373,11 +373,34 @@ async fn configured_hostname_serves_portal_and_protected_management_in_ap_and_st
                 web_root: assets.path().into(),
                 ap_name: "Setup".into(),
                 device_key: Some("test-device-password".into()),
-                hostnames: vec!["polis-dev.local".parse().unwrap()],
+                hostnames: vec![
+                    "polis-dev.local".parse().unwrap(),
+                    "alias.local".parse().unwrap(),
+                ],
             },
             "127.0.0.1:8080".into(),
         )
         .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/hotspot-detect.html")
+                    .header("host", "captive.apple.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if ready {
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        } else {
+            assert_eq!(response.status(), StatusCode::FOUND);
+            assert_eq!(
+                response.headers()["location"],
+                "http://polis-dev.local:8080/"
+            );
+        }
         let response = app
             .clone()
             .oneshot(request().uri("/").body(Body::empty()).unwrap())

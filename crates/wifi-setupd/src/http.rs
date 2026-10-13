@@ -77,7 +77,8 @@ fn network(n: wifi::Network) -> dto::Network {
 }
 
 /// A router bound to a local IP authority and explicit hostname aliases.
-/// AP discovery redirects foreign GETs to the IP, independent of mDNS.
+/// AP discovery redirects foreign GETs to the first trusted hostname, or the IP
+/// when no hostname is configured.
 pub fn router<A: Adapter + 'static>(
     handle: Handle<A>,
     config: Config,
@@ -88,6 +89,7 @@ pub fn router<A: Adapter + 'static>(
         &authority,
         config.hostnames.clone(),
     )?);
+    let redirect_authority = authorities.redirect_authority();
     let discovery = handle.clone();
     let portal = Arc::new(Portal {
         handle,
@@ -104,7 +106,7 @@ pub fn router<A: Adapter + 'static>(
         .fallback_service(ServeDir::new(root).append_index_html_on_directories(true))
         .layer(DefaultBodyLimit::max(4096))
         .layer(middleware::from_fn(move |request: Request, next: Next| {
-            let authority = authority.clone();
+            let authority = redirect_authority.clone();
             let authorities = authorities.clone();
             let discovery = discovery.clone();
             async move {
