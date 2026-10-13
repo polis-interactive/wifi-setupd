@@ -22,6 +22,36 @@ suite. Unknown or changed SSH host keys fail; establish and verify a new target'
 host key explicitly. `--config PATH` selects another configuration. The configured
 application path must agree with the image's development init script.
 
+When Avahi advertises on both Ethernet and Wi-Fi, set `host` to the verified
+Ethernet IPv4 address so deployment cannot select Wi-Fi through mDNS. Preserve
+the already verified SSH host key for that address. Refresh the target if its
+Ethernet DHCP lease changes. The daemon derives its default portal name from
+the Pi's runtime hostname. Optional `http_hostnames = ["custom.local"]` replaces
+that default when `portal.py start` runs.
+
+## Apply development mDNS settings without reflashing
+
+Run `python3 dev/pi/mdns.py` over verified Ethernet. It reads the exact Avahi
+configuration from the configured BuildrootImages checkout's development-access
+overlay, verifies the uploaded checksum, bind-mounts it over the read-only
+configuration, and restarts Avahi. A failed restart restores the previous config.
+The override lasts until reboot; rerun this command after reboot while testing
+an older image. Permanent image configuration remains in BuildrootImages.
+
+Hostname HTTP access requires the updated daemon; no explicit hostname setting
+is needed for the normal system name. From the station Wi-Fi LAN, open `http://polis-dev.local/`.
+A laptop connected to both development Ethernet and Wi-Fi may resolve the shared
+name to Ethernet; the portal intentionally listens only on Wi-Fi.
+
+## Per-device AP and management password
+
+Production integration belongs in BuildrootImages; follow the
+[device provisioning handoff](../../docs/device-provisioning.md). For the
+development portal, `python3 dev/pi/portal.py provision` generates or imports a
+shared AP/management password independently of build/deploy. Its private local
+record is `.local/devices/<Pi-serial>/device-key`. See the handoff for rotation,
+recovery and the production startup contract.
+
 ## Build and update
 
 ```sh
@@ -50,6 +80,11 @@ of active and previous artifacts. Rollback restores code only; it does not undo
 future application changes to persistent data.
 
 ## Commands and reboot
+
+Run `cargo make ssh` for an interactive shell using `.local/pi/config.toml`.
+The session verifies the Pi identity and Ethernet connection and stays open until
+you run `exit` or disconnect. For another configuration, use
+`python3 dev/pi/pi.py --config PATH ssh`.
 
 ```sh
 python3 dev/pi/pi.py exec uname -a
@@ -94,7 +129,7 @@ python3 dev/pi/pi.py wifi-ping
 `wifi-ping` reads that address over Ethernet, then sends three pings through the
 configured laptop Wi-Fi interface. It requires a network path between those
 Wi-Fi clients; client isolation may prevent replies even after successful
-association. It does not use `polis-dev.local`, which advertises Ethernet here.
+association. It does not use `polis-dev.local`, which can resolve to either interface.
 Development continues over Ethernet after this optional sanity check.
 
 ## Forget the test network
@@ -127,3 +162,17 @@ Unit checks cover argument quoting, error propagation, compiler symlink handling
 ELF validation, and avoiding reboot replay. Hardware acceptance separately checks
 two different builds, execution/log retrieval, incomplete-upload rejection,
 rollback, and reboot persistence. Local evidence belongs under `.local/pi/`.
+
+## Captive portal checks
+
+After deploying/provisioning/starting the [portal](../../docs/portal.md), run:
+
+```sh
+python3 dev/pi/captive_check.py
+```
+
+This checks AP-address ownership, UDP/TCP DNS, OS-probe redirects, portal HTML
+and continued API Host restrictions over verified Ethernet. It never submits
+router credentials. Follow it with the real iPhone/iPad check: forget/rejoin the
+setup AP and confirm the sign-in sheet opens without manually entering an IP.
+The setup password is the per-device key in the ignored local inventory.

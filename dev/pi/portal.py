@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Build/deploy/run the development portal over verified Ethernet SSH."""
 import argparse
-import getpass
 import hashlib
 import io
 import os
@@ -11,6 +10,7 @@ import subprocess
 import tarfile
 
 from pi import Pi, ROOT, load_config, validate_elf
+import device_key
 
 REMOTE = "/data/wifi-setupd-portal"
 AP_NAME = "wifi-setupd-test"
@@ -33,18 +33,40 @@ ln -s "releases/$release" "$root/current.new"
 mv -Tf "$root/current.new" "$root/current"
 trap - EXIT
 '''
-PROFILE = '''set -eu
-umask 077
-mkdir -p /var/lib/iwd/ap
-profile=/var/lib/iwd/ap/wifi-setupd-test.ap
-# Explicit development fixture: never overwrite an existing iwd profile.
-(set -C; : >"$profile")
-trap 'rm -f "$profile"' EXIT
-cat >"$profile"
-trap - EXIT
+# The installed development image has a read-only /etc and predates this
+# service. Preserve its configuration in a temporary bind mount and grant only
+# root access to this exact bus name. Reboot removes the mount; image-owned
+# production policy belongs in BuildrootImages.
+DBUS_POLICY = '''set -eu
+[ -f "$1/device-key" ] || { echo 'Run portal.py provision first' >&2; exit 1; }
+policy=/etc/dbus-1/system.d/wifi-setupd-development.conf
+if [ ! -f "$policy" ]; then
+    stage=$(mktemp -d /run/wifi-setupd-dbus.XXXXXX)
+    cp -a /etc/dbus-1/. "$stage/"
+    mkdir -p "$stage/system.d"
+    chmod 755 "$stage" "$stage/system.d"
+    cat >"$stage/system.d/wifi-setupd-development.conf" <<'POLICY'
+<busconfig>
+  <policy user="root">
+    <allow own="tv.polis.WifiSetup1"/>
+    <allow send_destination="tv.polis.WifiSetup1"/>
+  </policy>
+</busconfig>
+POLICY
+    chmod 644 "$stage/system.d/wifi-setupd-development.conf"
+    mount -o bind "$stage" /etc/dbus-1
+fi
+dbus-send --system --type=method_call --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ReloadConfig >/dev/null
 '''
 START = '''set -eu
 root=$1 interface=$2
+shift 2
+umask 077
+mkdir -p "$root"
+exec 9>"$root/provision.lock"
+/bin/busybox flock -n 9
+[ ! -e "$root/provisioning-incomplete" ] || { echo 'Rerun portal.py provision to finish the password update' >&2; exit 1; }
+[ -f "$root/device-key" ] || { echo 'Run portal.py provision first' >&2; exit 1; }
 [ -x "$root/current/wifi-setupd" ]
 [ -f "$root/current/web/index.html" ]
 [ -f /var/lib/iwd/ap/wifi-setupd-test.ap ]
@@ -57,7 +79,7 @@ if [ -f "$root/pid" ]; then
     fi
 fi
 umask 077
-nohup "$root/current/wifi-setupd" --interface "$interface" --ap-profile wifi-setupd-test --web-root "$root/current/web" --management-key-file "$root/management-key" >"$root/log" 2>&1 </dev/null &
+nohup "$root/current/wifi-setupd" --interface "$interface" --ap-profile wifi-setupd-test --web-root "$root/current/web" --device-key-file "$root/device-key" "$@" 9>&- >"$root/log" 2>&1 </dev/null &
 echo $! >"$root/pid"
 sleep 2
 kill -0 "$(cat "$root/pid")" || { cat "$root/log"; exit 1; }
@@ -82,11 +104,16 @@ def remote_input(pi, script, payload, *args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["build", "deploy", "start", "stop", "status", "logs"])
+    parser.add_argument("command", choices=["build", "deploy", "provision", "start", "stop", "status", "logs"])
     parser.add_argument("--config", type=Path, default=ROOT / ".local/pi/config.toml")
     local_dx = ROOT / ".local/tools/bin/dx"
     parser.add_argument("--dx", default=str(local_dx) if local_dx.exists() else "dx")
+    keys = parser.add_mutually_exclusive_group()
+    keys.add_argument("--key-file", type=Path, help="Import a device password during provisioning")
+    keys.add_argument("--rotate-key", action="store_true", help="Generate a new device password during provisioning")
     args = parser.parse_args()
+    if args.command != "provision" and (args.key_file is not None or args.rotate_key):
+        parser.error("Key options require the provision command")
     pi = Pi(load_config(args.config))
     artifact = ROOT / ".target" / pi.config["target"] / "release/wifi-setupd"
     if args.command == "build":
@@ -111,25 +138,21 @@ def main():
         digest = hashlib.sha256(payload).hexdigest()
         # Unique release directories keep the currently executing binary intact.
         remote_input(pi, UPLOAD, payload, REMOTE, digest[:12] + "-" + secrets.token_hex(4), digest)
-        key_path = ROOT / ".local/pi/portal-management-key"
-        if not key_path.exists():
-            with open(key_path, "x", opener=lambda p, flags: os.open(p, flags, 0o600)) as file:
-                file.write(secrets.token_hex(32) + "\n")
-        remote_input(pi, 'set -eu; umask 077; cat >"$1/management-key"', key_path.read_bytes(), REMOTE)
         print("Portal binary and offline web assets deployed. Run: python3 dev/pi/portal.py start")
+    elif args.command == "provision":
+        directory = ROOT / ".local/devices" / pi.config["expected_serial"]
+        key_path = device_key.provision(pi, remote_input, REMOTE, AP_NAME, directory,
+                                       args.key_file, args.rotate_key)
+        print(f"Device password installed for AP access and saved-network management. Local copy: {key_path}")
+        print("Run: python3 dev/pi/portal.py start")
     elif args.command == "start":
-        exists = pi.remote("exec", "sh", "-c", "if [ -e /var/lib/iwd/ap/wifi-setupd-test.ap ]; then echo yes; fi", capture=True)
-        if exists != "yes":
-            password = getpass.getpass("Pi setup AP passphrase (not your router password; hidden): ")
-            if not 8 <= len(password) <= 63 or not password.isascii() or any(c in password for c in "\x00\r\n"):
-                raise ValueError("Use 8–63 ASCII characters without line breaks")
-            psk = hashlib.pbkdf2_hmac("sha1", password.encode(), AP_NAME.encode(), 4096, 32).hex()
-            # Runtime test fixture only. Production image configuration belongs
-            # in BuildrootImages. Wi-Fi secrets persist only inside iwd storage.
-            profile = f"[General]\nDisableHT=true\n[Security]\nPreSharedKey={psk}\n[IPv4]\nAddress=192.168.16.1\nNetmask=255.255.255.240\n"
-            remote_input(pi, PROFILE, profile.encode())
-        pi.remote("exec", "sh", "-c", START, "portal", REMOTE, pi.config["wifi_interface"])
-        print("Join wifi-setupd-test and open http://192.168.16.1 . The AP has no shutdown timer.")
+        hostnames = pi.config.get("http_hostnames", [])
+        if not isinstance(hostnames, list) or not all(isinstance(name, str) for name in hostnames):
+            raise ValueError("http_hostnames must be an array of DNS names")
+        hostname_args = [argument for name in hostnames for argument in ("--http-hostname", name)]
+        pi.remote("exec", "sh", "-c", DBUS_POLICY, "portal-policy", REMOTE)
+        pi.remote("exec", "sh", "-c", START, "portal", REMOTE, pi.config["wifi_interface"], *hostname_args)
+        print("Portal started. When Wi-Fi is disconnected, join wifi-setupd-test for setup; the AP has no shutdown timer.")
     elif args.command == "stop":
         pi.remote("exec", "sh", "-c", STOP, "portal", REMOTE, timeout=45)
     elif args.command == "logs":

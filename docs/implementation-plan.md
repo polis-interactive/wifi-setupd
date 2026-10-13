@@ -290,17 +290,30 @@ mode, serve the UI on the device's Wi-Fi LAN address and offer connection status
 plus listing/deletion of old saved networks through iwd. Success changes the UI
 mode rather than shutting down the server. A radio/address transition can
 temporarily interrupt reachability; the server process itself stays available.
-Define access control for saved-network mutations before exposing them on the
-station LAN. Deletion is an explicit user action scoped to the selected profile.
-For a single radio, scan before starting the AP, label cached results, and
-support manual SSID entry. Do not promise live AP-mode scans until measured.
+Read the system hostname at startup and allow `<first-label>.local` by default.
+Repeatable `--http-hostname NAME` options override the default while preserving
+IP access and same-origin checks. BuildrootImages owns the system hostname and
+mDNS advertising on Wi-Fi; see the
+[hostname integration contract](device-provisioning.md#hostname-access-integration).
+Saved-network deletion requires the same per-device password used to join the
+setup AP, with Host/Origin and CSRF validation on requests. BuildrootImages will
+generate/install it during device provisioning, independently of image builds.
+This supersedes the password-free AP proposal; no iwd patch or hostapd is needed.
+The integration agent must follow [the device provisioning handoff](device-provisioning.md),
+including persistent paths, startup arguments, rotation and recovery checks.
+For a single radio, scan before starting the AP and combine those results with
+typed SSID entry in one Networks field. Do not show cached-scan explanatory copy.
+Portal submissions always replace saved credentials for the selected network. Do not promise live AP-mode scans until measured.
 Return submission acceptance before intentionally tearing down the AP; the UI
 explains the phone's disconnection and does not interpret it as authentication
 failure. Restore a usable portal with the error after failed attempts.
 
-Start with direct local-IP navigation. Determine required DNS and OS probe
-responses from phone testing; an HTTP page with DHCP alone does not establish
-captive-portal discovery. Add a small local DNS responder only when needed.
+The normal entry flow is now captive discovery on joining the setup AP. iwd
+advertises the AP DNS address through DHCP; the daemon serves AP-only UDP/TCP
+DNS and redirects Apple/Android/Windows HTTP probes to the setup page. Stop
+DNS/foreign-host redirects when joining station Wi-Fi; keep the regular portal
+running. Qualify automatic opening on iPhone/iPad; HTTP/DNS checks alone do not
+prove that the phone displayed its sign-in sheet.
 Serve on the intended Wi-Fi AP/station interface addresses as they change;
 do not unintentionally expose management on every interface. Validate requests
 and avoid credential exposure in logs, URLs, or public status.
@@ -310,6 +323,11 @@ on the Pi; success requires Wi-Fi association and usable Wi-Fi IP configuration,
 without an Internet requirement. Ethernet management cannot satisfy this check.
 
 ## 5. Deployment and failure qualification
+
+**Integration prerequisite:** implement the shared AP/management device password
+contract in [device-provisioning.md](device-provisioning.md) in BuildrootImages.
+Inject per-device secrets after flashing/provisioning; rotation must not require
+rebuilding the image. The development helper is a reference, not a product dependency.
 
 Package generated web assets into the daemon and integrate a Buildroot package
 with BusyBox startup after persistent storage, system D-Bus, and iwd are ready.
@@ -331,13 +349,13 @@ Tests are added with their components, not postponed until this final milestone.
 Exercise Step 4 on the phone/Pi using [the development portal](portal.md), then
 iterate on daemon/UI behavior with real hardware evidence. Local acceptance
 covers actual WASM in mobile Chromium, bad-password retry, a lost begin response,
-connected management authorization and scoped deletion. Rust HTTP tests verify
+connected management with the shared device password and scoped deletion. Rust HTTP tests verify
 acceptance before teardown, idempotence, input/origin/CSRF checks and reservation
 expiry. The runtime binds only the selected Wi-Fi IPv4 addresses, and the server
 survives AP/station transitions.
 
 Carry forward AP-to-station hardware qualification, positive authentication-failure
-classification and WPA2/WPA3 coverage. The development helper provisions a private
-iwd AP fixture through a local hidden prompt; production AP configuration and
-boot/image packaging remain in BuildrootImages for Step 5. No automatic captive
-portal discovery is claimed; use the device's local IP.
+classification and WPA2/WPA3 coverage. The development helper provisions the per-device password and matching
+iwd AP fixture without rebuilding; production AP configuration and
+boot/image packaging remain in BuildrootImages for Step 5. Captive DNS and HTTP probe discovery are implemented; automatic iPhone sign-in
+sheet opening remains a hardware acceptance check.

@@ -1,18 +1,19 @@
-use std::{error::Error, time::Duration};
+use std::{error::Error, ffi::OsString, time::Duration};
 use wifi_setupd::{
     provisioner::{Config, Handle},
     service::Service,
     wifi::iwd::{AccessPointConfig, InterfaceAddresses, IwdAdapter, Options},
 };
 
-const USAGE: &str = "wifi-setupd --interface NAME --ap-profile SSID --web-root PATH [--http-port 80] [--management-key-file PATH] [--startup-grace-seconds N] [--no-auto]\n\nThe AP profile must already exist in iwd's configuration. No password is\naccepted on the command line. Only Wi-Fi readiness suppresses automatic AP\nstartup; Ethernet does not. --no-auto requires an explicit D-Bus Start.";
+const USAGE: &str = "wifi-setupd --interface NAME --ap-profile SSID --web-root PATH [--http-port 80] [--http-hostname NAME] [--device-key-file PATH] [--startup-grace-seconds N] [--no-auto]\n\nThe AP profile must already exist in iwd's configuration. No password is\naccepted on the command line. Only Wi-Fi readiness suppresses automatic AP\nstartup; Ethernet does not. --no-auto requires an explicit D-Bus Start.\nDefault HTTP hostname: <system-host-label>.local, read at startup.\nRepeat --http-hostname to override that default with explicit DNS names.\nNames use --http-port; advertising/resolution is configured separately.";
 struct Arguments {
     interface: String,
     profile: String,
     config: Config,
     web_root: std::path::PathBuf,
     port: u16,
-    management_key: Option<String>,
+    device_key: Option<String>,
+    hostnames: Vec<wifi_setupd::http::Hostname>,
 }
 fn arguments() -> Result<Option<Arguments>, Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
@@ -21,7 +22,8 @@ fn arguments() -> Result<Option<Arguments>, Box<dyn Error>> {
     let mut config = Config::default();
     let mut web_root: Option<std::path::PathBuf> = None;
     let mut port = 80;
-    let mut management_key = None;
+    let mut device_key = None;
+    let mut hostnames = Vec::new();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
@@ -41,12 +43,19 @@ fn arguments() -> Result<Option<Arguments>, Box<dyn Error>> {
             }
             "--web-root" => web_root = Some(args.next().ok_or("missing web root")?.into()),
             "--http-port" => port = args.next().ok_or("missing port")?.parse()?,
-            "--management-key-file" => {
-                let key = std::fs::read_to_string(args.next().ok_or("missing key file")?)?;
-                if key.trim().len() < 32 {
-                    return Err("management key must have at least 32 characters".into());
+            "--http-hostname" => {
+                hostnames.push(args.next().ok_or("missing HTTP hostname")?.parse()?);
+            }
+            "--device-key-file" => {
+                let value = std::fs::read_to_string(args.next().ok_or("missing device key file")?)?;
+                let value = value.trim_end_matches(['\r', '\n']);
+                if !(8..=63).contains(&value.len()) || !value.bytes().all(|b| b.is_ascii_graphic())
+                {
+                    return Err(
+                        "device key must be 8–63 printable ASCII characters without spaces".into(),
+                    );
                 }
-                management_key = Some(key.trim().to_owned());
+                device_key = Some(value.to_owned());
             }
             "--no-auto" => config.automatic = false,
             _ => return Err("unknown option; run wifi-setupd --help".into()),
@@ -65,9 +74,27 @@ fn arguments() -> Result<Option<Arguments>, Box<dyn Error>> {
         config,
         web_root,
         port,
-        management_key,
+        device_key,
+        hostnames: resolve_hostnames(hostnames, nix::unistd::gethostname)?,
     }))
 }
+
+fn resolve_hostnames(
+    explicit: Vec<wifi_setupd::http::Hostname>,
+    system_hostname: impl FnOnce() -> Result<OsString, nix::Error>,
+) -> Result<Vec<wifi_setupd::http::Hostname>, Box<dyn Error>> {
+    if !explicit.is_empty() {
+        return Ok(explicit);
+    }
+    let hostname = system_hostname()?;
+    let hostname = hostname
+        .to_str()
+        .ok_or("system hostname must be valid UTF-8")?;
+    Ok(vec![wifi_setupd::http::Hostname::from_system_hostname(
+        hostname,
+    )?])
+}
+
 async fn connect() -> zbus::Connection {
     loop {
         match tokio::time::timeout(Duration::from_secs(5), zbus::Connection::system()).await {
@@ -105,7 +132,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         wifi_setupd::http::Config {
             web_root: args.web_root,
             ap_name: args.profile,
-            management_key: args.management_key,
+            device_key: args.device_key,
+            hostnames: args.hostnames,
         },
         args.port,
     ));
@@ -134,4 +162,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
     drop(service);
     connection.close().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wifi_setupd::http::Hostname;
+
+    #[test]
+    fn default_uses_runtime_system_host_label_with_one_local_suffix() {
+        for system in ["polis-dev", "POLIS-DEV.local", "polis-dev.example.org."] {
+            let names = resolve_hostnames(vec![], || Ok(system.into())).unwrap();
+            assert_eq!(names, vec!["polis-dev.local".parse::<Hostname>().unwrap()]);
+        }
+        for system in ["", "bad name", "*.local", "192.168.1.125"] {
+            assert!(resolve_hostnames(vec![], || Ok(system.into())).is_err());
+        }
+        assert!(resolve_hostnames(vec![], || Err(nix::errno::Errno::EIO)).is_err());
+    }
+
+    #[test]
+    fn explicit_hostnames_replace_default_without_reading_system_hostname() {
+        let explicit: Vec<Hostname> = ["custom.local", "setup.example.org"]
+            .into_iter()
+            .map(|name| name.parse().unwrap())
+            .collect();
+        let names = resolve_hostnames(explicit.clone(), || {
+            panic!("override must skip system lookup")
+        })
+        .unwrap();
+        assert_eq!(names, explicit);
+    }
 }

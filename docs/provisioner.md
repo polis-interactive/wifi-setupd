@@ -7,12 +7,13 @@ Step 4 adds the [HTTP server and phone portal](portal.md).
 ## Runtime configuration
 
 ```sh
-wifi-setupd --interface wlan0 --ap-profile wifi-setupd --web-root /usr/share/wifi-setupd/web
+wifi-setupd --interface wlan0 --ap-profile wifi-setupd --web-root /usr/share/wifi-setupd/web --device-key-file /data/wifi-setupd/device-key
 ```
 
 The interface and iwd AP profile SSID are explicit, non-secret arguments.
 The profile must already exist in iwd's AP configuration; the daemon never reads
-or writes credential files. For the tested Pi, the image-owned AP profile needs
+or writes iwd credential files. It reads the separately provisioned device key
+for HTTP management authentication. For the tested Pi, the image-owned AP profile needs
 `[General] DisableHT=true`. Provision that configuration in BuildrootImages;
 the temporary development probe profile is removed after startup and is not a
 production profile. The system bus must permit ownership and access to
@@ -23,6 +24,20 @@ policy and image packaging remain deployment work in Step 5.
 `--no-auto` waits for an explicit D-Bus Start instead of opening a setup AP
 automatically. `--help` runs without accessing D-Bus or hardware.
 
+Without hostname arguments, the daemon reads `gethostname()` at startup and
+allows `<first-label>.local`, matching Avahi's default host label. For example,
+`polis-dev`, `polis-dev.local`, and `polis-dev.example.org` all yield
+`polis-dev.local`. No build-time hostname setting or environment variable is needed.
+
+`--http-hostname NAME` replaces this default; repeat it for multiple aliases.
+Use names only, without schemes, ports or wildcards. Invalid explicit/system
+names fail startup; explicit overrides bypass system lookup. DNS names are
+case-insensitive and an optional final dot is accepted. Names use the configured
+HTTP port. IP access remains available. Restart after changing the system
+hostname. BuildrootImages configures Avahi advertising separately; the daemon
+never discovers trusted aliases from the network. Listeners remain restricted
+to IPv4 addresses on the configured Wi-Fi interface.
+
 A startup with working station Wi-Fi publishes Idle/Ready without radio changes.
 Otherwise, available iwd gets the grace window to auto-connect. Ethernet never
 counts as Wi-Fi readiness. Before starting an AP, the worker scans and checks
@@ -30,6 +45,11 @@ readiness again, allowing auto-connect completed during that scan to win.
 An existing active AP is adopted as AwaitingCredentials. The AP has no shutdown
 timer. Explicit Stop disables automatic AP fallback until another Start or a
 restart; Stop in Idle preserves any working Wi-Fi connection.
+
+Production per-device secrets are set by BuildrootImages provisioning, separate
+from the shared image build. The AP passphrase and the management password must
+match. See [the integration handoff](device-provisioning.md) for storage,
+startup, key rotation and recovery requirements.
 
 ## Ownership and cancellation
 

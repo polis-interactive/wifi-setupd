@@ -20,6 +20,7 @@ impl Mock {
                 backend: BackendState::Available,
                 link,
                 access_point_active: false,
+                connected_ssid: None,
             },
             calls: vec![],
             stall: false,
@@ -277,6 +278,7 @@ async fn stop_is_responsive_and_late_results_cannot_complete_cancelled_work() {
                 backend: BackendState::Available,
                 link: LinkState::Ready,
                 access_point_active: false,
+                connected_ssid: None,
             }),
             cleanup: Err(Error::Internal),
         })
@@ -499,4 +501,30 @@ async fn production_dbus_stop_does_not_wait_for_the_connection_worker() {
     })
     .await
     .expect("D-Bus cancellation test exceeded 10 seconds");
+}
+
+#[tokio::test(start_paused = true)]
+async fn connected_ssid_tracks_existing_connections_network_changes_and_disconnects() {
+    let mock = Mock::new(LinkState::Ready);
+    mock.0.lock().unwrap().snapshot.connected_ssid = Some("Existing network".into());
+    let handle = Handle::spawn(mock.clone(), config()).unwrap();
+    until(&handle, |s| s.link == LinkState::Ready).await;
+    assert_eq!(
+        handle.network_status().1.as_deref(),
+        Some("Existing network")
+    );
+    let before = handle.status();
+    mock.0.lock().unwrap().snapshot.connected_ssid = Some("Different network".into());
+    tokio::time::advance(Duration::from_millis(100)).await;
+    pump().await;
+    assert_eq!(handle.status(), before);
+    assert_eq!(
+        handle.network_status().1.as_deref(),
+        Some("Different network")
+    );
+    // Suppress stale names even if a backend leaves old metadata in its snapshot.
+    mock.0.lock().unwrap().snapshot.link = LinkState::Disconnected;
+    until(&handle, |s| s.link == LinkState::Disconnected).await;
+    assert_eq!(handle.network_status().1, None);
+    handle.shutdown().await.unwrap();
 }

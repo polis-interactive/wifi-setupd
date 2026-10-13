@@ -182,7 +182,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / ".local/pi/config.toml")
     commands = parser.add_subparsers(dest="action", required=True)
-    for action in ("status", "check", "build", "run", "start", "stop", "logs", "rollback", "reboot", "wifi-status", "wifi-ping"):
+    for action in ("status", "check", "build", "run", "start", "stop", "logs", "rollback", "reboot", "wifi-status", "wifi-ping", "ssh"):
         commands.add_parser(action)
     deploy = commands.add_parser("deploy")
     deploy.add_argument("artifact", type=Path)
@@ -192,7 +192,11 @@ def main():
     connect.add_argument("ssid", nargs="?")
     args = parser.parse_args()
     pi = Pi(load_config(args.config))
-    if args.action == "build":
+    if args.action == "ssh":
+        # Keep the verified remote wrapper, but let SSH own the terminal and
+        # session lifetime instead of imposing the remote-command timeout.
+        os.execvp("ssh", [*pi.ssh(interactive=True), pi.command("exec", ["sh", "-il"])])
+    elif args.action == "build":
         pi.build()
     elif args.action == "deploy":
         pi.deploy(args.artifact.resolve())

@@ -201,8 +201,8 @@ user direction before destructive replacement/deletion tests.
 Step 4 also verifies that HTTP stays running across AP/station transitions:
 disconnected users see onboarding; connected users can reach the UI at the
 Wi-Fi LAN address and list/delete selected saved networks. Confirm deletion
-preserves unrelated profiles and that LAN mutations require the chosen access
-control. A brief address/radio transition is not a server shutdown.
+preserves unrelated profiles, requires the shared device/AP password, and that
+mutations still validate Host/Origin and CSRF tokens. A brief address/radio transition is not a server shutdown.
 
 Mocks cannot establish driver support or mobile captive discovery. Verify Wi-Fi
 success on its interface; a successful unbound ping may use Ethernet instead.
@@ -228,13 +228,65 @@ not require the development suite.
 The [portal workflow](portal.md) builds actual Dioxus WASM assets and deploys the
 runtime over verified Ethernet. Local mobile Chromium acceptance uses the real
 HTTP server and actor with an in-memory adapter: authentication failure/retry,
-lost-response guidance, connection success, authorization and scoped deletion
+lost-response guidance, connection success, CSRF validation and scoped deletion
 pass. All assets load locally; passwords stay out of URLs and browser storage.
 
-Next hardware check: join `wifi-setupd-test`, open `http://192.168.16.1`, submit
+Next hardware check: forget/rejoin `wifi-setupd-test` on iPhone/iPad, confirm its
+Wi-Fi sign-in sheet opens automatically without entering an IP address, submit
 router credentials through the page, then verify the portal at the station LAN
 address. Also exercise an incorrect password and AP restoration/retry. The
-start helper provisions the AP's iwd-owned test profile if missing; it asks for
-the setup AP passphrase locally. It never reconnects to the router on its own,
+provision helper installs a per-device password for AP access and management;
+startup reuses it. It never reconnects to the router on its own,
 and the AP has no shutdown timer. Keep successful router credentials in iwd for
 connected-management testing; scoped deletion remains an explicit user action.
+
+Captive discovery checks cover UDP/TCP DNS, zero-TTL A records, empty AAAA/HTTPS
+answers, malformed queries, automatic DNS shutdown on leaving onboarding,
+Apple/Android/Windows HTTP redirects, and unchanged API/Origin restrictions.
+The iwd AP fixture advertises its own DNS address through DHCP. DNS and probe
+redirects are AP-only; Ethernet is never selected and station-LAN management
+keeps normal Host/Origin checks. Actual iOS presentation still requires a phone.
+
+**Live Pi evidence (2026-10-13):** the current ARM daemon and UI are deployed;
+`dev/pi/captive_check.py` passes against the Pi: UDP/TCP DNS answers, Apple's
+HTTP probe redirects, canonical portal HTML and rejected foreign-host API calls.
+The test checks that the AP address is assigned to wlan0 before probing, so a
+DNS server reachable through Ethernet cannot be mistaken for the Pi's AP.
+The AP remains running for the iPhone check; automatic phone presentation is
+not yet confirmed.
+
+Runtime bring-up exposed missing D-Bus name-ownership policy in the existing
+EROFS image. The development start helper adds a root-only policy through a
+reversible `/run` bind mount and ReloadConfig; production integration belongs in
+BuildrootImages. iwd also exited during the first station/AP transition; the
+cause is not established. After restarting iwd and explicitly starting its AP
+profile, the daemon adopted the AP and the captive checks passed. Cold-start
+and iwd-exit recovery still require qualification; this is not a claim that
+those failure paths passed on hardware.
+
+The device password was subsequently rotated to three lowercase words followed
+by three digits. All 19 development-helper tests pass. Restarting after rotation
+reproduced the iwd exit; restarting iwd and explicitly starting the updated AP
+profile restored service. The automatic station/AP transition remains unqualified.
+
+The first iPhone attempt did not open the captive sheet and Safari used cellular.
+The AP profile omitted `Gateway`; inspection of the installed iwd 3.12/ELL 0.83
+source showed that DHCP omits the router option in this case, despite the man
+page's claimed fallback. Provisioning now explicitly sets `Gateway=192.168.16.1`
+alongside `DNSList`, and the existing Pi profile was updated without rotating its
+password. The smoke test now checks these profile settings as well as DNS/HTTP.
+This is not an on-wire DHCP check: phone rejoin and confirmation of its assigned
+router and automatic sign-in sheet remain necessary.
+
+The user subsequently confirmed successful onboarding to the router and portal
+access through the station Wi-Fi IP. The hostname-capable daemon was then deployed
+over verified Ethernet with `--http-hostname polis-dev.local`. The current
+BuildrootImages Avahi diff was applied via a temporary bind mount, enabling IPv4
+mDNS on eth0/wlan0 and disabling IPv6 transport/AAAA publication. Wi-Fi-scoped
+mDNS returned the station address, hostname and IP HTTP requests returned 200,
+foreign Host/Origin requests returned 403, and status remained Idle/Ready.
+Ethernet SSH remained available using its pinned IPv4 and existing trusted key.
+Evidence: `.local/pi/mdns-live-check.log`. The Avahi override is removed by reboot;
+`dev/pi/mdns.py` reapplies the image-owned configuration without reflashing.
+The multihomed laptop's default resolver can still select Ethernet; a phone on
+the station Wi-Fi or an interface-scoped query tests Wi-Fi discovery directly.

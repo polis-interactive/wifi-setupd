@@ -371,7 +371,11 @@ async fn observes_autoconnection_without_mutation_and_requires_wifi_address() {
         h.addresses.store(false, Ordering::SeqCst);
         assert_eq!(h.adapter.snapshot().await?.link, LinkState::Associated);
         h.addresses.store(true, Ordering::SeqCst);
-        assert_eq!(h.adapter.snapshot().await?.link, LinkState::Ready);
+        let snapshot = h.adapter.snapshot().await?;
+        assert_eq!(snapshot.link, LinkState::Ready);
+        assert_eq!(snapshot.connected_ssid.as_deref(), Some("test-network"));
+        h.state.lock().unwrap().station = "disconnected".into();
+        assert_eq!(h.adapter.snapshot().await?.connected_ssid, None);
         h.save().await;
         assert_eq!(h.adapter.known_networks().await?.len(), 2);
         assert_eq!(h.state.lock().unwrap().mutations, 0);
@@ -466,6 +470,40 @@ async fn explicit_replacement_discards_only_selected_profile_even_on_failure() {
                     && saved.network.security == Security::Enterprise)
         );
         h.adapter.cancel_and_reconcile(OperationId(2)).await?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn forgetting_disconnects_only_the_matching_active_network() {
+    bounded(Duration::from_secs(10), async {
+        let mut h = Harness::new().await;
+        h.save().await;
+        h.state.lock().unwrap().station = "connected".into();
+        let snapshot = h
+            .adapter
+            .apply(
+                OperationId(1),
+                Action::Forget {
+                    network: Network {
+                        ssid: "other-network".into(),
+                        security: Security::Personal,
+                    },
+                },
+            )
+            .await?;
+        assert_eq!(snapshot.link, LinkState::Ready);
+        assert_eq!(h.state.lock().unwrap().mutations, 0);
+        let snapshot = h
+            .adapter
+            .apply(OperationId(2), Action::Forget { network: target() })
+            .await?;
+        assert_eq!(snapshot.link, LinkState::Disconnected);
+        assert_eq!(snapshot.connected_ssid, None);
+        assert_eq!(h.state.lock().unwrap().mutations, 1);
+        assert!(h.adapter.known_networks().await?.is_empty());
         Ok(())
     })
     .await

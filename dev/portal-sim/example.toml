@@ -1,0 +1,18 @@
+# Fake credentials only. Restart the simulator after editing this file.
+port = 8080
+ap_name = "wifi-setupd-test"
+device_key = "simulator-device-password" # Fake AP/management password.
+# Uncomment to open directly in the connected/manage-networks view.
+# initially_connected = "Home Wi-Fi"
+
+[[networks]]
+ssid = "Home Wi-Fi"
+password = "working-password"
+connect_delay_ms = 2000
+
+[[networks]]
+ssid = "Workshop"
+password = "workshop-password"
+connect_delay_ms = 5000
+saved = true
+

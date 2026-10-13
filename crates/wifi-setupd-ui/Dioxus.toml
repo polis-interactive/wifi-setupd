@@ -1,2 +1,6 @@
 [web.app]
 title = "Wi-Fi setup"
+
+# Used only by dx serve. The development launcher owns this loopback simulator.
+[[web.proxy]]
+backend = "http://127.0.0.1:8089/api"

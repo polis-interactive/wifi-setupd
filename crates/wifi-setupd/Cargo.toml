@@ -9,7 +9,7 @@ include = ["src/**", "Cargo.toml"]
 [dependencies]
 wifi-setupd-zbus-api.workspace = true
 zbus.workspace = true
-nix.workspace = true
+nix = { workspace = true, features = ["hostname"] }
 kameo.workspace = true
 axum.workspace = true
 tower-http.workspace = true

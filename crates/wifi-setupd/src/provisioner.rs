@@ -62,6 +62,7 @@ pub struct Handle<A: Adapter + 'static> {
     publications: broadcast::Sender<Publication>,
     adapter: Arc<Mutex<A>>,
     networks: Arc<std::sync::Mutex<Vec<Network>>>,
+    network_status: Arc<std::sync::Mutex<(Status, Option<String>)>>,
 }
 impl<A: Adapter + 'static> Clone for Handle<A> {
     fn clone(&self) -> Self {
@@ -71,6 +72,7 @@ impl<A: Adapter + 'static> Clone for Handle<A> {
             publications: self.publications.clone(),
             adapter: self.adapter.clone(),
             networks: self.networks.clone(),
+            network_status: self.network_status.clone(),
         }
     }
 }
@@ -86,9 +88,12 @@ impl<A: Adapter + 'static> Handle<A> {
         let (publications, _) = broadcast::channel(128);
         let adapter = Arc::new(Mutex::new(adapter));
         let networks = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let network_status = Arc::new(std::sync::Mutex::new((Status::default(), None)));
         let actor = Provisioner::spawn(Provisioner {
             adapter: adapter.clone(),
             networks: networks.clone(),
+            network_status: network_status.clone(),
+            connected_ssid: None,
             automatic: config.automatic,
             config,
             status,
@@ -109,10 +114,15 @@ impl<A: Adapter + 'static> Handle<A> {
             publications,
             adapter,
             networks,
+            network_status,
         })
     }
     pub fn status(&self) -> Status {
         *self.status.borrow()
+    }
+    /// Coherent HTTP status plus observed SSID; the D-Bus wire status is unchanged.
+    pub fn network_status(&self) -> (Status, Option<String>) {
+        self.network_status.lock().expect("network status").clone()
     }
     pub fn cached_networks(&self) -> Vec<Network> {
         self.networks.lock().expect("network cache").clone()
@@ -263,7 +273,9 @@ struct Finished {
 pub struct Provisioner<A: Adapter + 'static> {
     adapter: Arc<Mutex<A>>,
     networks: Arc<std::sync::Mutex<Vec<Network>>>,
+    network_status: Arc<std::sync::Mutex<(Status, Option<String>)>>,
     config: Config,
+    connected_ssid: Option<String>,
     automatic: bool,
     status: watch::Sender<Status>,
     publications: broadcast::Sender<Publication>,
@@ -318,6 +330,14 @@ impl<A: Adapter + 'static> Provisioner<A> {
         *self.status.borrow()
     }
     fn publish(&mut self, status: Status, completed: bool) {
+        let ssid = if status.backend == BackendState::Available && status.link == LinkState::Ready {
+            self.connected_ssid.clone()
+        } else {
+            None
+        };
+        // SSID can change while the public link state remains Ready.
+        *self.network_status.lock().expect("network status") = (status, ssid);
+
         if status == self.current() && !completed {
             return;
         }
@@ -329,7 +349,8 @@ impl<A: Adapter + 'static> Provisioner<A> {
             revision: self.revision,
         });
     }
-    fn snapshot_into(status: &mut Status, snapshot: &Snapshot) {
+    fn snapshot_into(&mut self, status: &mut Status, snapshot: &Snapshot) {
+        self.connected_ssid = snapshot.connected_ssid.clone();
         status.backend = snapshot.backend;
         status.link = if snapshot.backend == BackendState::Available {
             snapshot.link
@@ -395,7 +416,7 @@ impl<A: Adapter + 'static> Provisioner<A> {
         actor: &ActorRef<Self>,
     ) {
         let mut status = self.current();
-        Self::snapshot_into(&mut status, &snapshot);
+        self.snapshot_into(&mut status, &snapshot);
         if self.cancelled || matches!(goal, Goal::Cancel) {
             // A late successful AP start may still need an explicit stop.
             if snapshot.access_point_active {
@@ -619,9 +640,10 @@ impl<A: Adapter + 'static> Message<Observation> for Provisioner<A> {
             backend: BackendState::Unavailable,
             link: LinkState::Unknown,
             access_point_active: false,
+            connected_ssid: None,
         });
         let mut status = self.current();
-        Self::snapshot_into(&mut status, &snapshot);
+        self.snapshot_into(&mut status, &snapshot);
         if snapshot.backend == BackendState::Unavailable {
             self.not_ready_since = None;
             if status.state.is_active() {
@@ -695,7 +717,7 @@ impl<A: Adapter + 'static> Message<Finished> for Provisioner<A> {
         match finished.result {
             Ok(snapshot) => {
                 let mut status = self.current();
-                Self::snapshot_into(&mut status, &snapshot);
+                self.snapshot_into(&mut status, &snapshot);
                 if job.kind == Kind::Forget {
                     status.state = State::Idle;
                     status.last_error = ProvisioningError::None;

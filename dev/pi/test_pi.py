@@ -39,7 +39,7 @@ class PiTests(unittest.TestCase):
             compiler.symlink_to(wrapper)
             text = Path(__file__).with_name("config.example.toml").read_text()
             text = text.replace("REPLACE_WITH_PI_SERIAL", "0123456789abcdef")
-            text = text.replace("../BuildrootImages/output/REPLACE_WITH_OUTPUT/host/bin/aarch64-linux-gcc", str(compiler))
+            text = text.replace("../BuildrootImages/.output/REPLACE_WITH_OUTPUT/host/bin/aarch64-linux-gcc", str(compiler))
             path = Path(directory) / "config.toml"
             path.write_text(text)
             self.assertEqual(pi.load_config(path)["linker"], str(compiler))

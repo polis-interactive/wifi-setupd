@@ -31,7 +31,7 @@ startup grace window and AP fallback policy.
 | ConnectKnown | Ask iwd to use the matching saved profile |
 | Connect | New credentials through a temporary, scoped agent; refuse existing profile |
 | ReplaceCredentials | Explicit intent: Forget matching SSID/security, then submit new credentials |
-| Forget | Delete only matching SSID/security through iwd; absent profile is a no-op |
+| Forget | Delete only matching SSID/security through iwd; explicitly disconnect a matching active connection |
 | Start/Stop AP | Switch Device.Mode, wait for the appropriate interface, call Start or StartProfile / Stop |
 | Cancel/reconcile | Stop the accepted radio action and observe state before clearing pending work |
 
@@ -64,9 +64,10 @@ cached signal subscription. The actor's long-running watch ownership is Step 3.
 
 An accepted radio/profile mutation remains pending after failure, timeout, or future drop;
 conflicting mutations are refused until explicit reconciliation. Stale operation
-IDs cannot cancel newer work. Forget has no radio cleanup and does not disconnect
-an unrelated connection. Cancellation cannot resurrect forgotten credentials.
-Mode-setting and Forget calls retain their pending replies across caller future
+IDs cannot cancel newer work. Forget disconnects a matching active network and
+enables radio cleanup only when that disconnect is needed; it leaves unrelated
+connections alone. Cancellation cannot resurrect forgotten credentials.
+Mode-setting, Forget, and its explicit disconnect retain pending replies across caller future
 drop; cleanup waits for those non-cancellable calls to settle before claiming
 the device is quiescent. Status reads have a three-second upper bound and report
 Unavailable/Unknown on a backend timeout; they recover on later observations.

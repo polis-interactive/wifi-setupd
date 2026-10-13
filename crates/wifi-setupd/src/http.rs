@@ -1,12 +1,14 @@
-//! Local-IP portal. Secrets live only in bounded pending requests or iwd.
+//! Wi-Fi portal with explicit trusted hosts. Secrets stay in pending requests or iwd.
+mod authority;
 use crate::{
     provisioner::{CommandError, Handle},
     wifi::{self, Adapter, Credentials},
 };
+pub use authority::Hostname;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -27,7 +29,10 @@ use wifi_setupd_zbus_api::ProvisioningState;
 pub struct Config {
     pub web_root: PathBuf,
     pub ap_name: String,
-    pub management_key: Option<String>,
+    /// Same per-device secret used to provision the AP; None disables deletion.
+    pub device_key: Option<String>,
+    /// Additional trusted DNS names, served on the same port as the local IP.
+    pub hostnames: Vec<Hostname>,
 }
 struct Pending {
     id: String,
@@ -71,13 +76,19 @@ fn network(n: wifi::Network) -> dto::Network {
     }
 }
 
-/// A router bound to one explicit local authority. No CORS and no wildcard Host.
+/// A router bound to a local IP authority and explicit hostname aliases.
+/// AP discovery redirects foreign GETs to the IP, independent of mDNS.
 pub fn router<A: Adapter + 'static>(
     handle: Handle<A>,
     config: Config,
     authority: String,
 ) -> std::io::Result<Router> {
     let root = config.web_root.clone();
+    let authorities = Arc::new(authority::Authorities::new(
+        &authority,
+        config.hostnames.clone(),
+    )?);
+    let discovery = handle.clone();
     let portal = Arc::new(Portal {
         handle,
         config,
@@ -94,17 +105,43 @@ pub fn router<A: Adapter + 'static>(
         .layer(DefaultBodyLimit::max(4096))
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let authority = authority.clone();
+            let authorities = authorities.clone();
+            let discovery = discovery.clone();
             async move {
                 let headers = request.headers();
                 let host = headers.get("host").and_then(|v| v.to_str().ok());
-                let origin = headers.get("origin").and_then(|v| v.to_str().ok());
-                if host != Some(authority.as_str())
-                    || origin.is_some_and(|v| v != format!("http://{authority}"))
-                {
-                    return fail(StatusCode::FORBIDDEN, "Use the device's local address.")
-                        .into_response();
-                }
-                let mut response: Response = next.run(request).await;
+                let local = authorities.local_host(headers);
+                let probe = matches!(
+                    request.uri().path(),
+                    "/hotspot-detect.html"
+                        | "/library/test/success.html"
+                        | "/generate_204"
+                        | "/gen_204"
+                        | "/connecttest.txt"
+                        | "/ncsi.txt"
+                        | "/redirect"
+                        | "/canonical.html"
+                        | "/success.txt"
+                );
+                // Foreign hosts get only a fixed redirect, never the UI or API.
+                // Preserve strict API/mutation checks even while the AP is up.
+                let redirect = crate::captive::active(discovery.status())
+                    && matches!(*request.method(), Method::GET | Method::HEAD)
+                    && host.is_some()
+                    && !headers.contains_key("origin")
+                    && !request.uri().path().starts_with("/api")
+                    && (!local || probe);
+                let mut response: Response = if redirect {
+                    (
+                        StatusCode::FOUND,
+                        [("location", format!("http://{authority}/"))],
+                    )
+                        .into_response()
+                } else if !local || !authorities.same_origin(headers) {
+                    fail(StatusCode::FORBIDDEN, "Use the device's local address.").into_response()
+                } else {
+                    next.run(request).await
+                };
                 response
                     .headers_mut()
                     .insert("cache-control", "no-store".parse().unwrap());
@@ -122,11 +159,7 @@ pub fn router<A: Adapter + 'static>(
         }))
         .with_state(portal))
 }
-fn authorize<A: Adapter + 'static>(
-    p: &Portal<A>,
-    headers: &HeaderMap,
-    management: bool,
-) -> Result<(), Failure> {
+fn authorize<A: Adapter + 'static>(p: &Portal<A>, headers: &HeaderMap) -> Result<(), Failure> {
     if headers
         .get("x-wifi-setup-csrf")
         .and_then(|v| v.to_str().ok())
@@ -137,27 +170,15 @@ fn authorize<A: Adapter + 'static>(
             "Refresh the page before trying again.",
         ));
     }
-    if management
-        && !p.config.management_key.as_ref().is_some_and(|key| {
-            headers
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v == format!("Bearer {key}"))
-        })
-    {
-        return Err(fail(
-            StatusCode::UNAUTHORIZED,
-            "Enter the device management key.",
-        ));
-    }
     Ok(())
 }
 async fn status<A: Adapter + 'static>(State(p): State<Arc<Portal<A>>>) -> Json<dto::PortalStatus> {
     let saved = p.handle.known_networks().await;
-    let s = p.handle.status();
+    let (s, connected_ssid) = p.handle.network_status();
     Json(dto::PortalStatus {
         state: format!("{:?}", s.state),
         link: format!("{:?}", s.link),
+        connected_ssid,
         backend: format!("{:?}", s.backend),
         error: (s.last_error != wifi_setupd_zbus_api::ProvisioningError::None)
             .then(|| format!("{:?}", s.last_error)),
@@ -176,7 +197,6 @@ async fn status<A: Adapter + 'static>(State(p): State<Arc<Portal<A>>>) -> Json<d
             .map(|n| network(n.network))
             .collect(),
         scan_cached: true,
-        management_requires_key: true,
     })
 }
 async fn reserve<A: Adapter + 'static>(
@@ -184,7 +204,7 @@ async fn reserve<A: Adapter + 'static>(
     headers: HeaderMap,
     body: Result<Json<dto::ConnectRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Result<(StatusCode, Json<dto::Accepted>), Failure> {
-    authorize(&p, &headers, false)?;
+    authorize(&p, &headers)?;
     let Json(request) = body.map_err(|_| fail(StatusCode::BAD_REQUEST, "Invalid request."))?;
     if request.ssid.is_empty()
         || request.ssid.len() > 32
@@ -225,7 +245,7 @@ async fn begin<A: Adapter + 'static>(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<StatusCode, Failure> {
-    authorize(&p, &headers, false)?;
+    authorize(&p, &headers)?;
     let mut begun = p.begun.lock().await;
     if begun.as_ref() == Some(&id) {
         return Ok(StatusCode::ACCEPTED);
@@ -256,7 +276,18 @@ async fn forget<A: Adapter + 'static>(
     headers: HeaderMap,
     body: Result<Json<dto::Network>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, Failure> {
-    authorize(&p, &headers, true)?;
+    authorize(&p, &headers)?;
+    if !p.config.device_key.as_ref().is_some_and(|key| {
+        headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.strip_prefix("Bearer ") == Some(key.as_str()))
+    }) {
+        return Err(fail(
+            StatusCode::UNAUTHORIZED,
+            "Enter the device password used to join the setup Wi-Fi.",
+        ));
+    }
     let Json(selected) = body.map_err(|_| fail(StatusCode::BAD_REQUEST, "Invalid network."))?;
     let known = p.handle.known_networks().await.map_err(command)?;
     let selected = known
@@ -281,6 +312,8 @@ pub async fn serve_interface<A: Adapter + 'static>(
 ) {
     let mut tasks = tokio::task::JoinSet::new();
     let mut listeners: HashMap<Ipv4Addr, tokio::task::AbortHandle> = HashMap::new();
+    let mut dns: HashMap<Ipv4Addr, tokio::task::AbortHandle> = HashMap::new();
+    let mut status = handle.subscribe();
     loop {
         let addresses: Vec<_> = nix::ifaddrs::getifaddrs()
             .into_iter()
@@ -297,6 +330,41 @@ pub async fn serve_interface<A: Adapter + 'static>(
                 true
             }
         });
+        let captive = port == 80 && crate::captive::active(handle.status());
+        dns.retain(|ip, task| {
+            if !captive || !addresses.contains(ip) || task.is_finished() {
+                task.abort();
+                false
+            } else {
+                true
+            }
+        });
+        for &ip in &addresses {
+            if !captive || dns.contains_key(&ip) {
+                continue;
+            }
+            let sockets = async {
+                let udp = tokio::net::UdpSocket::bind((ip, 53)).await?;
+                let tcp = tokio::net::TcpListener::bind((ip, 53)).await?;
+                Ok::<_, std::io::Error>((udp, tcp))
+            }
+            .await;
+            match sockets {
+                Ok((udp, tcp)) => {
+                    let status = handle.subscribe();
+                    eprintln!("wifi-setupd: captive DNS listening on {ip}:53");
+                    dns.insert(
+                        ip,
+                        tasks.spawn(async move {
+                            if let Err(error) = crate::captive::serve(udp, tcp, ip, status).await {
+                                eprintln!("wifi-setupd: captive DNS stopped: {error}");
+                            }
+                        }),
+                    );
+                }
+                Err(error) => eprintln!("wifi-setupd: cannot bind captive DNS on {ip}:53: {error}"),
+            }
+        }
         for ip in addresses {
             if listeners.contains_key(&ip) {
                 continue;
@@ -315,7 +383,8 @@ pub async fn serve_interface<A: Adapter + 'static>(
                 Config {
                     web_root: config.web_root.clone(),
                     ap_name: config.ap_name.clone(),
-                    management_key: config.management_key.clone(),
+                    device_key: config.device_key.clone(),
+                    hostnames: config.hostnames.clone(),
                 },
                 authority,
             ) else {
@@ -330,7 +399,10 @@ pub async fn serve_interface<A: Adapter + 'static>(
             );
         }
         while tasks.try_join_next().is_some() {}
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {},
+            changed = status.changed() => { if changed.is_err() { break; } },
+        }
     }
 }
 

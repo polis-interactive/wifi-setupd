@@ -9,6 +9,8 @@ pub struct Network {
 pub struct PortalStatus {
     pub state: String,
     pub link: String,
+    #[serde(default)]
+    pub connected_ssid: Option<String>,
     pub backend: String,
     pub error: Option<String>,
     pub ap_name: String,
@@ -17,7 +19,6 @@ pub struct PortalStatus {
     pub saved: Vec<Network>,
     pub saved_available: bool,
     pub scan_cached: bool,
-    pub management_requires_key: bool,
 }
 // Never derive Debug for request bodies containing secrets.
 #[derive(Serialize, Deserialize)]

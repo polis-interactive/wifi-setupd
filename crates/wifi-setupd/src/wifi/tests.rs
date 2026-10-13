@@ -80,6 +80,7 @@ fn snapshot(link: LinkState, ap: bool) -> Snapshot {
         backend: BackendState::Available,
         link,
         access_point_active: ap,
+        connected_ssid: None,
     }
 }
 

@@ -43,6 +43,7 @@ pub struct Snapshot {
     pub backend: BackendState,
     pub link: LinkState,
     pub access_point_active: bool,
+    pub connected_ssid: Option<String>,
 }
 
 /// IDs are assigned by the provisioner, never derived from an iwd object path.
@@ -60,6 +61,7 @@ pub enum Action {
     /// Use iwd's existing profile without reading or replacing its secrets.
     ConnectKnown(Network),
     Disconnect,
+    /// Remove only the selected profile and disconnect if it is the active network.
     Forget {
         network: Network,
     },

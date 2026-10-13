@@ -23,7 +23,17 @@ The executable now runs the Kameo provisioner and production D-Bus service.
 It allows iwd auto-connect, starts an AP after a grace window when Wi-Fi is not
 ready, and reconciles cancellation before another radio operation. The HTTP
 portal now supports onboarding, retry and connected-network management.
+AP-only DNS and HTTP probe redirects provide captive discovery; iPhone sign-in
+sheet presentation is the next hardware check.
 See [run the portal](docs/portal.md) and [runtime configuration](docs/provisioner.md).
+
+## Preview the UI locally
+
+Run `cargo make dev`, then open **http://127.0.0.1:8080** for Dioxus hot reload.
+`cargo make ui` serves a static release preview.
+Edit [the simulator TOML](dev/portal-sim/example.toml) for fake SSIDs and accepted
+passwords. No hardware or running Wi-Fi backend is needed. See
+[local UI testing](docs/portal.md#local-ui-with-fake-wi-fi) for fixture options.
 
 ## Check the workspace
 
@@ -44,7 +54,7 @@ Tests require `dbus-daemon` on PATH and permission to bind a temporary Unix
 socket, with no root privileges, host bus, host network access, or Pi. The private
 bus is explicitly injected and killed/reaped after each test. A sandbox that
 blocks Unix sockets needs a test-execution exception, not a system-bus fallback.
-Thirty-one behavioral tests and one compiling doctest cover the public
+Behavioral tests and a compiling doctest cover the public
 contract, adapter, actor, production exporter, and their full private-bus path.
 The separate API consumer has its own workspace/lockfile and is compiled only,
 not run against the host system bus.
@@ -79,6 +89,10 @@ old profile; unrelated profiles are preserved. The web server stays
 running after connection and offers saved-network management in station mode.
 
 ## Working plan
+
+Production integration agents: read the [per-device password handoff](docs/device-provisioning.md).
+BuildrootImages must provision one shared AP/management password per device,
+independently of image builds, and support rotation without a rebuild.
 
 1. [Pi readiness and testing](docs/testing-plan.md): first create the development
    image, establish parameterized Ethernet/SSH updates, and prove iwd can connect

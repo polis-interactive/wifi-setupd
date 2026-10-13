@@ -200,6 +200,7 @@ impl<A: AddressSource> IwdAdapter<A> {
         if !boolean(frame.properties(DEVICE)?, "Powered")? {
             return Ok(unavailable());
         }
+        let mut connected_ssid = None;
         let (link, access_point_active) = match frame.mode()? {
             "ap" => (
                 LinkState::Disconnected,
@@ -211,13 +212,12 @@ impl<A: AddressSource> IwdAdapter<A> {
                     "connected" | "roaming" => {
                         // ConnectedNetwork may be absent while association is changing.
                         let connected: OwnedObjectPath = object_path(station, "ConnectedNetwork")?;
-                        if !frame
+                        let network = frame
                             .objects
                             .get(&connected)
-                            .is_some_and(|i| i.contains_key(NETWORK))
-                        {
-                            return Err(Error::Unavailable);
-                        }
+                            .and_then(|interfaces| interfaces.get(NETWORK))
+                            .ok_or(Error::Unavailable)?;
+                        connected_ssid = Some(string(network, "Name")?.to_owned());
                         if self.addresses.has_usable_address(&self.interface)? {
                             LinkState::Ready
                         } else {
@@ -236,6 +236,7 @@ impl<A: AddressSource> IwdAdapter<A> {
             backend: BackendState::Available,
             link,
             access_point_active,
+            connected_ssid,
         })
     }
 
@@ -555,9 +556,49 @@ impl<A: AddressSource> IwdAdapter<A> {
                     .await?;
                 self.observed(&fresh)
             }
-            Action::Forget { network } => {
-                self.forget(&frame, &network).await?;
-                self.observed(&self.same_frame(&frame.identity).await?)
+            Action::Forget { network: selected } => {
+                self.forget(&frame, &selected).await?;
+                let mut fresh = self.same_frame(&frame.identity).await?;
+                // Forget may remove only the profile. Explicitly end a matching
+                // station connection, while leaving unrelated connections alone.
+                let connected = if fresh.mode()? == "station" {
+                    object_path(fresh.properties(STATION)?, "ConnectedNetwork")
+                        .ok()
+                        .and_then(|path| fresh.objects.get(&path))
+                        .and_then(|interfaces| interfaces.get(NETWORK))
+                        .map(network)
+                        .transpose()?
+                } else {
+                    None
+                };
+                if connected.as_ref() == Some(&selected) {
+                    self.pending
+                        .as_mut()
+                        .expect("active operation")
+                        .changes_radio = true;
+                    let connection = self.connection.clone();
+                    let identity = frame.identity.clone();
+                    self.tracked_call(async move {
+                        StationProxy::builder(&connection)
+                            .destination(identity.owner.as_str())
+                            .map_err(map_error)?
+                            .path(identity.device.as_str())
+                            .map_err(map_error)?
+                            .build()
+                            .await
+                            .map_err(map_error)?
+                            .disconnect()
+                            .await
+                            .map_err(map_error)
+                    })
+                    .await?;
+                    fresh = self
+                        .wait_for(&frame.identity, |frame| {
+                            Ok(string(frame.properties(STATION)?, "State")? == "disconnected")
+                        })
+                        .await?;
+                }
+                self.observed(&fresh)
             }
         }
     }
@@ -746,6 +787,7 @@ fn unavailable() -> Snapshot {
         backend: BackendState::Unavailable,
         link: LinkState::Unknown,
         access_point_active: false,
+        connected_ssid: None,
     }
 }
 fn string<'a>(props: &'a HashMap<String, OwnedValue>, name: &str) -> Result<&'a str, Error> {
