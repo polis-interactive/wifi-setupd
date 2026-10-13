@@ -2,6 +2,7 @@
 name = "wifi-setupd-zbus-api-consumer-check"
 version = "0.0.0"
 edition = "2024"
+license = "MIT"
 publish = false
 
 # Deliberately independent: no workspace dependency or feature unification.
