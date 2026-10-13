@@ -109,3 +109,12 @@ tooling. Hardware work uses Ethernet/SSH without an SBC-controller dependency.
 
 Repository Dioxus guidance lives in
 [.agents/skills/dioxus-web/SKILL.md](.agents/skills/dioxus-web/SKILL.md).
+
+## License
+
+Licensed under the [MIT License](LICENSE-MIT).
+
+## Contributions
+
+External contributions are not currently accepted. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy.
