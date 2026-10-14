@@ -13,8 +13,9 @@ compiler or rustup installation.
 ## Rust toolchain policy
 
 There is no `rust-toolchain.toml`: local builds use the caller's selected
-toolchain, and Buildroot uses its directly invoked Cargo/rustc. CI and release use
-the current stable channel and records the exact compiler version in provenance.
+toolchain, and Buildroot uses its directly invoked Cargo/rustc. CI uses the
+current stable channel and records the exact compiler version in provenance.
+Release reuses that build without installing a Rust toolchain.
 This avoids synchronizing an exact compiler pin across repositories. Locked
 dependencies remain in `Cargo.lock`; this does not promise compatibility with
 every older compiler or declare a minimum supported Rust version.
@@ -27,20 +28,31 @@ Buildroot should continue checking compilation when either repository changes.
 ## Release artifacts and publication
 
 [CI](../.github/workflows/ci.yml) builds and tests opened, reopened and updated
-pull requests. Pushing new commits to an open PR triggers CI automatically;
-branch/tag pushes without an open PR do not.
+pull requests, plus pushes to `main` (including merges). Other branch pushes
+without an open PR and tag pushes do not trigger CI. After a successful `main`
+build and browser test, `cargo make package-web` archives the staged portal
+without rebuilding it, using `workspace.package.version`. CI uploads it as
+`release-portal-COMMIT-ATTEMPT`, retained for 90 days. PR runs do not upload
+release artifacts. New PR updates cancel older PR runs; each main commit has
+its own concurrency group so later merges do not cancel its build.
+
 [Release](../.github/workflows/release.yml) runs when a GitHub release is
 published, including prereleases. It validates that the tag matches
-`workspace.package.version` and its original commit, then requires a successful
-PR CI run for that commit. For a merge/squash/rebase result with a different SHA,
-it checks CI for the head of the merged PR whose `merge_commit_sha` matches the
-release commit. This validates the PR's CI result, not a new test run after the
-merge. It waits for the latest matching run if pending; missing, failed or
-cancelled CI blocks release. Make version changes in a PR, let CI pass, then
-merge and tag the resulting commit before publishing.
+`workspace.package.version` and its original commit, then requires successful
+push CI on `main` for that exact commit. It waits for the latest matching run
+if pending; missing, failed or cancelled CI blocks release. It downloads the
+artifact from that successful run attempt and verifies checksums, source commit,
+version, clean-source status and Cargo.lock hash before publishing the same bytes.
+Release performs no compilation or tests and installs no build tools.
 
-Release uses `cargo make release-package` to build, stage and package the portal,
-then uploads these assets. Tests run in CI, not in the release workflow.
+Make version changes in a PR, merge to `main`, let CI pass, then tag that tested
+commit and publish the release. Missing, expired or mismatched artifacts block
+publication; there is no automatic rebuild fallback. If the artifact has expired,
+rerun the entire main CI run for that commit before retrying release. Each run
+attempt uses a distinct artifact name, preventing reuse of an older attempt's
+build. Retention is also subject to the repository's Actions settings.
+
+Release publishes these assets:
 
 | Asset | Contents |
 | --- | --- |
@@ -87,6 +99,7 @@ lives in YAML. The same tasks can run locally:
 | --- | --- |
 | `cargo make check` | Fetch locked dependencies; format, build, Clippy, Rust/packaging/release-validation tests and API consumer check |
 | `cargo make ci` | All checks, release build/staging and mobile browser acceptance |
+| `cargo make package-web` | Archive already-tested staging output using the workspace version, without rebuilding |
 | `cargo make release-stage` | Build and install into a staging root |
 | `cargo make test-browser` | Build the simulator and test an already-staged portal |
 | `RELEASE_TAG=0.1.1 cargo make release-package` | Build, stage and archive a clean release checkout |
@@ -97,8 +110,8 @@ environment's Python. `PORTAL_BROWSER` defaults to `/usr/bin/google-chrome`;
 set it to `chromium` to use Playwright's installed browser, or to another browser
 executable path. Tasks never install browser/system packages on a developer's
 machine. For isolated GitHub Ubuntu runners, `build-support/setup-ci.sh` installs
-build tools and `build-support/setup-browser.sh` installs test tools. Release uses only
-the build-tool installer.
+build tools and `build-support/setup-browser.sh` installs test tools. Release
+needs neither installer.
 
 The staging tasks default to native output under `.target/`, staged into
 `.target/release-root`, with archives under `dist/`. Override `RELEASE_BINARY`,
@@ -127,12 +140,12 @@ Rust/SDK and Python when consuming the published portal:
 
 | Tool | Version / requirement |
 | --- | --- |
-| Rust and Cargo | Caller-selected; current stable in CI and release |
+| Rust and Cargo | Caller-selected; current stable in CI |
 | Rust standard libraries | `wasm32-unknown-unknown` and the selected Linux target |
 | Dioxus CLI (`dx`) | 0.7.10 |
 | wasm-bindgen CLI | 0.2.129, matching `Cargo.lock` |
 | esbuild / Binaryen (`wasm-opt`) | 0.27.3 / 120 |
-| Python | 3.9+ for product build/install; 3.11+ for release validation and CI tests |
+| Python | 3.9+ for product build/install; 3.11+ for archiving, release validation and CI tests |
 | C linker / sysroot | Buildroot SDK matching the Linux target and libc |
 
 Supply host tools on `PATH`; `DX` or `--dx` selects the Dioxus executable,
@@ -145,7 +158,7 @@ toolchain with `rustup target add wasm32-unknown-unknown`; deleting the override
 does not transfer installed targets between toolchains.
 
 Prepare Rust targets, host tools and locked crate sources during the relevant
-builder's download/setup phases. CI and release install web tools before building;
+builder's download/setup phases. CI installs web tools before building;
 the Buildroot image build must not run `rustup` or `cargo install` to download
 missing tools. Both commands below always pass
 `--locked`; use `--offline` for the actual Buildroot build. The web command sets
@@ -156,7 +169,7 @@ Use Buildroot's Cargo source replacement configuration for vendored builds.
 
 ## Build and stage
 
-These commands support local and release builds. Buildroot's existing package
+These commands support local builds and the CI build used for release. Buildroot's existing package
 replaces the web build with download, hash verification and extraction of the
 release portal, then uses the daemon and install commands below.
 Run them at the source root. Paths below are examples to replace with

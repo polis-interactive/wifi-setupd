@@ -97,6 +97,12 @@ dependencies = ["release"]
 command = "python3"
 args = ["build-support/release.py", "install", "--binary", "${RELEASE_BINARY}", "--web-root", "${RELEASE_WEB_ROOT}", "--destdir", "${RELEASE_DESTDIR}"]
 
+[tasks.package-web]
+description = "Archive already-staged web output using the workspace version; does not rebuild."
+workspace = false
+command = "python3"
+args = ["build-support/archive-web.py", "--web-root", "${RELEASE_DESTDIR}/usr/share/wifi-setupd/web", "--output-dir", "${RELEASE_OUTPUT_DIR}", "--require-clean"]
+
 [tasks.release-package]
 description = "Build, stage and package a clean release; requires RELEASE_TAG."
 workspace = false

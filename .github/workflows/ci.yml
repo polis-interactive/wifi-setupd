@@ -2,13 +2,15 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-test:
@@ -30,3 +32,15 @@ jobs:
 
       - name: Build and test
         run: cargo make ci
+
+      - name: Package tested portal
+        if: github.event_name == 'push'
+        run: cargo make package-web
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name == 'push'
+        with:
+          name: release-portal-${{ github.sha }}-${{ github.run_attempt }}
+          path: dist/wifi-setupd-web-*
+          if-no-files-found: error
+          retention-days: 90

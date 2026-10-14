@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import tarfile
+import tomllib
 
 from release import ROOT, web_files
 
@@ -45,11 +46,13 @@ def sha256(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--web-root', type=Path, required=True)
-    parser.add_argument('--version', required=True, help='Release tag, e.g. 0.1.1')
+    parser.add_argument('--version', help='Release tag; defaults to workspace.package.version')
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'dist')
     parser.add_argument('--require-clean', action='store_true',
                         help='Reject tracked source changes before packaging a release')
     args = parser.parse_args()
+    if args.version is None:
+        args.version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['version']
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', args.version):
         parser.error('Use a numeric release tag such as 0.1.1 or 0.1.1-rc.1 (no v prefix)')
     epoch = int(output(['git', 'show', '-s', '--format=%ct', 'HEAD']))

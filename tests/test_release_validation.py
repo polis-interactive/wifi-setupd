@@ -1,8 +1,9 @@
-"""Release gating must reject untested commits and propagate CI failure."""
+"""Release gating must reject untested commits and mismatched build artifacts."""
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ class ReleaseValidationTests(unittest.TestCase):
 
     def test_missing_or_different_commit_cannot_satisfy_gate(self):
         for runs in ([], [{'databaseId': 1, 'headSha': 'other-commit'}]):
-            with patch.object(validation, 'output', side_effect=[json.dumps(runs), '[[]]']), \
+            with patch.object(validation, 'output', return_value=json.dumps(runs)), \
                     patch.object(validation.subprocess, 'run') as watch:
                 with self.assertRaises(ValueError):
                     validation.require_ci('release-commit')
@@ -40,38 +41,83 @@ class ReleaseValidationTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 validation.require_ci('release-commit')
 
-    def test_successful_ci_uses_the_exact_commit_and_enforces_exit_status(self):
+    def test_successful_main_ci_returns_run_and_attempt_for_exact_commit(self):
         runs = [{'databaseId': 42, 'headSha': 'release-commit'}]
-        with patch.object(validation, 'output', return_value=json.dumps(runs)) as query, \
+        run = dict(head_sha='release-commit', head_branch='main', event='push',
+                   status='completed', conclusion='success', run_attempt=2)
+        with patch.object(validation, 'output', side_effect=[json.dumps(runs), json.dumps(run)]) as query, \
                 patch.object(validation.subprocess, 'run') as watch:
-            validation.require_ci('release-commit')
-            args = query.call_args.args[0]
+            self.assertEqual(validation.require_ci('release-commit'), (42, 2))
+            args = query.call_args_list[0].args[0]
             self.assertEqual(args[args.index('--commit') + 1], 'release-commit')
-            self.assertEqual(args[args.index('--event') + 1], 'pull_request')
+            self.assertEqual(args[args.index('--event') + 1], 'push')
+            self.assertEqual(args[args.index('--branch') + 1], 'main')
             self.assertIn('--exit-status', watch.call_args.args[0])
             self.assertTrue(watch.call_args.kwargs['check'])
 
-    def test_merge_result_uses_ci_for_the_merged_pr_head(self):
-        pull = {'merged_at': '2026-10-13', 'merge_commit_sha': 'release-commit',
-                'head': {'sha': 'pr-head'}}
-        run = {'databaseId': 43, 'headSha': 'pr-head'}
-        with patch.object(validation, 'output', side_effect=[
-            '[]', json.dumps([[pull]]), json.dumps([run]),
-        ]) as query, patch.object(validation.subprocess, 'run') as watch:
-            validation.require_ci('release-commit')
-            self.assertIn('--paginate', query.call_args_list[1].args[0])
-            self.assertIn('pr-head', query.call_args_list[2].args[0])
-            self.assertIn('43', watch.call_args.args[0])
-
-    def test_open_or_unrelated_pr_cannot_satisfy_merge_gate(self):
-        for merged_at, merge_commit in ((None, 'release-commit'), ('2026-10-13', 'other')):
-            pull = {'merged_at': merged_at, 'merge_commit_sha': merge_commit,
-                    'head': {'sha': 'pr-head'}}
-            with patch.object(validation, 'output', side_effect=['[]', json.dumps([[pull]])]), \
-                    patch.object(validation.subprocess, 'run') as watch:
+    def test_pr_branch_or_rerunning_ci_cannot_supply_release(self):
+        runs = [{'databaseId': 42, 'headSha': 'release-commit'}]
+        good_run = dict(head_sha='release-commit', head_branch='main', event='push',
+                        status='completed', conclusion='success', run_attempt=2)
+        for field, value in (('head_sha', 'other'), ('head_branch', 'feature'),
+                             ('event', 'pull_request'), ('status', 'in_progress'),
+                             ('conclusion', 'failure')):
+            with self.subTest(field=field), \
+                    patch.object(validation, 'output', side_effect=[
+                        json.dumps(runs), json.dumps({**good_run, field: value}),
+                    ]), patch.object(validation.subprocess, 'run'):
                 with self.assertRaises(ValueError):
                     validation.require_ci('release-commit')
-                watch.assert_not_called()
+
+
+class ArtifactValidationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.archive = self.directory / 'wifi-setupd-web-0.1.1.tar.gz'
+        self.metadata = self.directory / 'wifi-setupd-web-0.1.1.provenance.json'
+        self.checksums = self.directory / 'wifi-setupd-web-0.1.1.sha256'
+        self.archive.write_bytes(b'tested archive fixture')
+        self.provenance = dict(version='0.1.1', source_commit='commit', source_dirty=False,
+                               cargo_lock_sha256=validation.sha256(validation.ROOT / 'Cargo.lock'),
+                               archive_sha256=validation.sha256(self.archive))
+        self.write_metadata()
+
+    def write_metadata(self):
+        self.metadata.write_text(json.dumps(self.provenance))
+        self.checksums.write_text(''.join(
+            f'{validation.sha256(path)}  {path.name}\n' for path in (self.archive, self.metadata)))
+
+    def validate(self):
+        validation.validate_artifacts(self.directory, '0.1.1', 'commit')
+
+    def test_accepts_matching_artifact_without_changing_bytes(self):
+        before = {p.name: p.read_bytes() for p in self.directory.iterdir()}
+        self.validate()
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.directory.iterdir()})
+
+    def test_provenance_must_match_even_with_valid_checksums(self):
+        for field, value in (('version', '0.1.2'), ('source_commit', 'other'),
+                             ('source_dirty', True), ('source_dirty', None),
+                             ('cargo_lock_sha256', 'wrong'), ('archive_sha256', 'wrong')):
+            with self.subTest(field=field), patch.dict(self.provenance, {field: value}):
+                self.write_metadata()
+                with self.assertRaises(ValueError):
+                    self.validate()
+
+    def test_rejects_corruption_and_missing_checksums(self):
+        self.archive.write_bytes(b'changed')
+        with self.assertRaises(ValueError):
+            self.validate()
+        self.checksums.unlink()
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_rejects_unexpected_assets(self):
+        (self.directory / 'unrelated-secret').write_text('must not publish')
+        with self.assertRaises(ValueError):
+            self.validate()
 
 
 if __name__ == '__main__':

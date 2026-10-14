@@ -103,11 +103,12 @@ Buildroot integration agents: start with [the build/install handoff](docs/buildr
 install commands. Production builds require no `dev/` tooling or `.local/` data.
 `cargo make release` is the equivalent local build convenience task.
 [CI](.github/workflows/ci.yml) runs `cargo make ci` when pull requests are opened,
-reopened or updated with new commits. Branch/tag pushes without an open PR do
-not trigger CI.
-The [release workflow](.github/workflows/release.yml) validates the tag and CI
-result for its commit or the merged PR that produced it, then builds, packages
-and publishes the portal.
+reopened or updated with new commits, and on pushes to `main` (including merges).
+Successful `main` runs archive the tested portal for release. Other branch pushes
+without an open PR and tag pushes do not trigger CI.
+The [release workflow](.github/workflows/release.yml) validates the tag, requires
+successful `main` CI for that exact commit, and publishes its archived portal
+after verifying checksums and provenance. Release does not rebuild.
 Buildroot compiles the matching daemon with its own Rust toolchain.
 
 Production integration agents: read the [per-device password handoff](docs/device-provisioning.md).

@@ -18,7 +18,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: read
+    outputs:
+      ci_run_id: ${{ steps.validate.outputs.ci_run_id }}
+      ci_run_attempt: ${{ steps.validate.outputs.ci_run_attempt }}
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
@@ -27,54 +29,40 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
-      - name: Validate tag and require successful CI
+      - name: Validate tag and require successful main CI
+        id: validate
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: python3 build-support/validate-release.py --tag "$RELEASE_TAG" --commit "$GITHUB_SHA" --require-ci
 
-  build:
+  publish:
     needs: validate
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
     env:
-      RUSTUP_TOOLCHAIN: stable
       RELEASE_TAG: ${{ github.event.release.tag_name }}
-      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Install build tools
-        run: bash build-support/setup-ci.sh
-
-      - name: Build, stage and package
-        run: cargo make release-package
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Download the tested portal from main CI
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-portal
-          path: dist/wifi-setupd-web-*
-          if-no-files-found: error
-          retention-days: 14
-
-  publish:
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: release-portal
+          name: release-portal-${{ github.sha }}-${{ needs.validate.outputs.ci_run_attempt }}
+          run-id: ${{ needs.validate.outputs.ci_run_id }}
+          github-token: ${{ github.token }}
           path: dist
+
+      - name: Verify artifact provenance and checksums
+        run: python3 build-support/validate-release.py --tag "$RELEASE_TAG" --commit "$GITHUB_SHA" --artifact-dir dist
+
       - name: Publish without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          (cd dist && sha256sum --check *.sha256)
-          gh release upload "$RELEASE_TAG" dist/wifi-setupd-web-*
+        run: gh release upload "$RELEASE_TAG" dist/wifi-setupd-web-*
