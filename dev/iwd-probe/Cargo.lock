@@ -1033,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "wifi-setupd"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "axum",
  "kameo",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "wifi-setupd-http-api"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "serde",
 ]
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "wifi-setupd-zbus-api"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "serde",
  "zbus",

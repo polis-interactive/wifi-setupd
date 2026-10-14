@@ -52,6 +52,16 @@ rerun the entire main CI run for that commit before retrying release. Each run
 attempt uses a distinct artifact name, preventing reuse of an older attempt's
 build. Retention is also subject to the repository's Actions settings.
 
+Run `cargo make bump-version` to choose `1) major`, `2) minor` or `3) patch`;
+press Enter to cancel. The command updates `workspace.package.version` and all
+four lockfiles together, restoring the original files if an update fails.
+Commit those changes in the version PR. If you edited the version manually,
+`cargo make sync-lockfiles` refreshes the product and all three independent
+helper workspaces. Both commands use Cargo's conservative
+`update --workspace --offline`; a root-only Cargo command does not update helper
+lockfiles. Existing registry dependencies remain locked unless the manifest
+changes require new dependencies.
+
 Release publishes these assets:
 
 | Asset | Contents |

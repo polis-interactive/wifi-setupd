@@ -15,6 +15,18 @@ workspace = false
 command = "cargo"
 args = ["fetch", "--locked"]
 
+[tasks.sync-lockfiles]
+description = "Refresh all workspace lockfiles after changing local crate versions."
+workspace = false
+command = "python3"
+args = ["build-support/version.py", "--sync-lockfiles"]
+
+[tasks.bump-version]
+description = "Choose major, minor or patch; update the workspace version and all lockfiles."
+workspace = false
+command = "python3"
+args = ["build-support/version.py"]
+
 [tasks.check-format]
 workspace = false
 command = "cargo"
