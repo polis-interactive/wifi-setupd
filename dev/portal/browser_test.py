@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--browser", default="/usr/bin/google-chrome")
+    parser.add_argument("--browser", default="/usr/bin/google-chrome",
+                        help="Browser executable, or 'chromium' for Playwright's managed browser")
     parser.add_argument("--web-root", type=Path,
                         default=ROOT / ".target/dx/wifi-setupd-ui/release/web/public")
     args = parser.parse_args()
@@ -34,7 +35,9 @@ def main():
             except OSError:
                 time.sleep(0.1)
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=args.browser, headless=True, args=["--no-sandbox"])
+            browser = playwright.chromium.launch(
+                executable_path=None if args.browser == "chromium" else args.browser,
+                headless=True, args=["--no-sandbox"])
             context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
             page = context.new_page()
             exceptions = []

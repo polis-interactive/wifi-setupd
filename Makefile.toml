@@ -1,5 +1,71 @@
+[config]
+skip_core_tasks = true
+
 [env]
 UI_MOCK_CONFIG = { value = "dev/portal-sim/example.toml", condition = { env_not_set = ["UI_MOCK_CONFIG"] } }
+RELEASE_BINARY = { value = ".target/release/wifi-setupd", condition = { env_not_set = ["RELEASE_BINARY"] } }
+RELEASE_WEB_ROOT = { value = ".target/dx/wifi-setupd-ui/release/web/public", condition = { env_not_set = ["RELEASE_WEB_ROOT"] } }
+RELEASE_DESTDIR = { value = ".target/release-root", condition = { env_not_set = ["RELEASE_DESTDIR"] } }
+RELEASE_OUTPUT_DIR = { value = "dist", condition = { env_not_set = ["RELEASE_OUTPUT_DIR"] } }
+BROWSER_PYTHON = { value = "python3", condition = { env_not_set = ["BROWSER_PYTHON"] } }
+PORTAL_BROWSER = { value = "/usr/bin/google-chrome", condition = { env_not_set = ["PORTAL_BROWSER"] } }
+
+[tasks.fetch]
+workspace = false
+command = "cargo"
+args = ["fetch", "--locked"]
+
+[tasks.check-format]
+workspace = false
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.check-build]
+workspace = false
+command = "cargo"
+args = ["build", "--workspace", "--locked", "--offline"]
+
+[tasks.check-clippy]
+workspace = false
+command = "cargo"
+args = ["clippy", "--workspace", "--all-targets", "--locked", "--offline", "--", "-D", "warnings"]
+
+[tasks.test-rust]
+workspace = false
+command = "cargo"
+args = ["test", "--workspace", "--locked", "--offline"]
+
+[tasks.test-packaging]
+workspace = false
+command = "python3"
+args = ["-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"]
+
+[tasks.check-api]
+workspace = false
+command = "cargo"
+args = ["check", "--manifest-path", "tests/api-consumer/Cargo.toml", "--locked", "--target-dir", ".target/api-consumer"]
+
+[tasks.check]
+description = "Build, lint and test the workspace, packaging and independent API consumer."
+workspace = false
+dependencies = ["fetch", "check-format", "check-build", "check-clippy", "test-rust", "test-packaging", "check-api"]
+
+[tasks.simulator-build]
+workspace = false
+command = "cargo"
+args = ["build", "--manifest-path", "dev/portal-sim/Cargo.toml", "--locked", "--target-dir", ".target/portal-sim"]
+
+[tasks.test-browser]
+description = "Test the staged portal using the local simulator and mobile Chromium."
+workspace = false
+dependencies = ["simulator-build"]
+command = "${BROWSER_PYTHON}"
+args = ["dev/portal/browser_test.py", "--browser", "${PORTAL_BROWSER}", "--web-root", "${RELEASE_DESTDIR}/usr/share/wifi-setupd/web"]
+
+[tasks.ci]
+description = "Run the same build and test pipeline as GitHub CI (tools must be installed)."
+workspace = false
+dependencies = ["check", "release-stage", "test-browser"]
 
 [tasks.ui-build]
 description = "Build the offline Dioxus web assets."
@@ -11,18 +77,38 @@ args = ["dev/portal/build.py"]
 description = "Build production web assets using tools on PATH (or DX)."
 workspace = false
 command = "python3"
-args = ["build-support/release.py", "web"]
+args = ["build-support/release.py", "web", "--offline"]
 
 [tasks.release-daemon]
 description = "Build the production daemon; honors Cargo target/linker environment."
 workspace = false
 command = "python3"
-args = ["build-support/release.py", "daemon"]
+args = ["build-support/release.py", "daemon", "--offline"]
 
 [tasks.release]
 description = "Build production daemon and web assets; see docs/buildroot.md to install."
 workspace = false
-dependencies = ["release-web", "release-daemon"]
+dependencies = ["fetch", "release-web", "release-daemon"]
+
+[tasks.release-stage]
+description = "Build and install the product into RELEASE_DESTDIR."
+workspace = false
+dependencies = ["release"]
+command = "python3"
+args = ["build-support/release.py", "install", "--binary", "${RELEASE_BINARY}", "--web-root", "${RELEASE_WEB_ROOT}", "--destdir", "${RELEASE_DESTDIR}"]
+
+[tasks.package-web]
+description = "Archive already-staged web output using the workspace version; does not rebuild."
+workspace = false
+command = "python3"
+args = ["build-support/archive-web.py", "--web-root", "${RELEASE_DESTDIR}/usr/share/wifi-setupd/web", "--output-dir", "${RELEASE_OUTPUT_DIR}", "--require-clean"]
+
+[tasks.release-package]
+description = "Build, stage and package a clean release; requires RELEASE_TAG."
+workspace = false
+dependencies = ["release-stage"]
+command = "python3"
+args = ["build-support/archive-web.py", "--web-root", "${RELEASE_DESTDIR}/usr/share/wifi-setupd/web", "--version", "${RELEASE_TAG}", "--output-dir", "${RELEASE_OUTPUT_DIR}", "--require-clean"]
 
 [tasks.ui]
 description = "Run the local UI with TOML-configured fake Wi-Fi (no hardware)."

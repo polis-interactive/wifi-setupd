@@ -39,7 +39,15 @@ passwords. No hardware or running Wi-Fi backend is needed. See
 
 Cargo writes build output to `.target/`, configured in `.cargo/config.toml`.
 
-Run from this directory with Rust 1.99.0:
+Run from this directory with your selected Rust toolchain (current stable for
+local development). There is no repository toolchain override. Install its
+`rustfmt` and `clippy` components for the checks below:
+
+`cargo make check` runs workspace build/lint/tests, packaging tests and the
+independent API consumer check. `cargo make ci` also builds and stages the
+release and runs mobile browser acceptance. See the
+[CI tool prerequisites](docs/buildroot.md#ci-and-local-tasks) before running the
+browser pipeline locally.
 
 ```sh
 cargo build --workspace --locked --offline
@@ -94,6 +102,14 @@ Buildroot integration agents: start with [the build/install handoff](docs/buildr
 `python3 build-support/release.py` exposes separate web, daemon and staging
 install commands. Production builds require no `dev/` tooling or `.local/` data.
 `cargo make release` is the equivalent local build convenience task.
+[CI](.github/workflows/ci.yml) runs `cargo make ci` when pull requests are opened,
+reopened or updated with new commits, and on pushes to `main` (including merges).
+Successful `main` runs archive the tested portal for release. Other branch pushes
+without an open PR and tag pushes do not trigger CI.
+The [release workflow](.github/workflows/release.yml) validates the tag, requires
+successful `main` CI for that exact commit, and publishes its archived portal
+after verifying checksums and provenance. Release does not rebuild.
+Buildroot compiles the matching daemon with its own Rust toolchain.
 
 Production integration agents: read the [per-device password handoff](docs/device-provisioning.md).
 BuildrootImages must provision one shared AP/management password per device,
