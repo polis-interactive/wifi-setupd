@@ -202,6 +202,10 @@ For automated mobile checks, install Python `playwright==1.63.0` in a temporary
 virtual environment and run `dev/portal/browser_test.py` with that Python. It
 starts/stops the simulator itself. Chrome defaults to `/usr/bin/google-chrome`;
 override with `--browser PATH`. Screenshots go under ignored `.local/portal/`.
+Use `--browser chromium` for Playwright's managed browser. After staging a
+release, `BROWSER_PYTHON=/path/to/venv/bin/python cargo make test-browser` runs
+the same test and builds its simulator. `cargo make ci` runs the full pipeline,
+including the release build and staging.
 The test covers bad-password retry, a dropped begin response/status outage,
 connected management with the device password, scoped deletion, local-only assets, mobile
 width, and absence of secrets in URLs/browser storage.

@@ -62,7 +62,7 @@ python3 dev/pi/pi.py run
 ```
 
 `build` compiles only the product daemon and its dependencies. Install the target
-once with `rustup target add --toolchain 1.99.0 aarch64-unknown-linux-musl`.
+once for your selected toolchain with `rustup target add aarch64-unknown-linux-musl`.
 `deploy` verifies the ELF target, streams it through SSH to a temporary file,
 checks length and SHA-256, stops the existing app, preserves the previous binary,
 and atomically activates the upload. Deployment does not execute the new artifact.

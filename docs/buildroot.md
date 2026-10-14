@@ -4,6 +4,106 @@ This repository provides product build/install commands. BuildrootImages owns th
 package recipe, image inputs, startup, D-Bus policy and device provisioning.
 Read [device-provisioning.md](device-provisioning.md) alongside this document.
 
+The current consumer contract is
+[BuildrootImages/package/polis-wifi-setupd/README.md](../../BuildrootImages/package/polis-wifi-setupd/README.md).
+Buildroot compiles the daemon with its own Cargo/Rust and downloads the matching
+prebuilt portal from the GitHub release. Image builds need no Dioxus, WASM
+compiler or rustup installation.
+
+## Rust toolchain policy
+
+There is no `rust-toolchain.toml`: local builds use the caller's selected
+toolchain, and Buildroot uses its directly invoked Cargo/rustc. CI and release use
+the current stable channel and records the exact compiler version in provenance.
+This avoids synchronizing an exact compiler pin across repositories. Locked
+dependencies remain in `Cargo.lock`; this does not promise compatibility with
+every older compiler or declare a minimum supported Rust version.
+
+The current daemon and locked dependencies were successfully cross-compiled
+with Buildroot's Rust 1.97.1 and its AArch64 musl SDK on 2026-10-13. The resulting
+ELF is statically linked. That is compatibility evidence, not a toolchain pin.
+Buildroot should continue checking compilation when either repository changes.
+
+## Release artifacts and publication
+
+[CI](../.github/workflows/ci.yml) builds and tests pushes and pull requests.
+[Release](../.github/workflows/release.yml) runs when a GitHub release is
+published, including prereleases. It validates that the tag matches
+`workspace.package.version` and its original commit, then requires a successful
+push CI run for that exact commit. It waits for the latest matching run if it
+is still pending; missing, failed or cancelled CI blocks release. Push the
+version commit/tag and let CI pass before publishing; retry the release workflow
+after fixing a missing or failed CI run.
+
+Release uses `cargo make release-package` to build, stage and package the portal,
+then uploads these assets. Tests run in CI, not in the release workflow.
+
+| Asset | Contents |
+| --- | --- |
+| `wifi-setupd-web-VERSION.tar.gz` | `index.html` and `assets/` at the archive root |
+| `wifi-setupd-web-VERSION.sha256` | SHA-256 for the archive and provenance file |
+| `wifi-setupd-web-VERSION.provenance.json` | Source commit, Cargo.lock hash, exact web/Rust tool versions, archive hash and source timestamp |
+
+Use numeric tags such as `0.1.1` or `0.1.1-rc.1`, without a `v` prefix, matching
+the Buildroot asset naming contract. The existing `0.1.0` tag predates this
+workflow; bump the workspace version, refresh affected lockfiles and publish a
+new patch tag containing the workflow. Advance Buildroot's daemon source and
+portal version together.
+Record the published portal's actual hash in `polis-wifi-setupd.hash`; the
+Buildroot-vendored source archive has its own separate hash.
+
+The archive has sorted entries, normalized ownership and permissions, and a
+timestamp taken from the source commit in both tar and gzip metadata. This makes
+packaging identical web bytes repeatable; changing the stable Rust compiler can
+still change rebuilt WASM. Release uploads without `--clobber` and will not replace
+existing assets. Fix a published release by publishing a new version. The
+workflow requires release asset uploads to remain enabled after publication;
+GitHub's [immutable-release setting](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+instead requires a draft-first upload flow.
+
+To package already-tested web output locally:
+
+```sh
+python3 build-support/archive-web.py \
+  --web-root .target/release-root/usr/share/wifi-setupd/web \
+  --version 0.1.1 --output-dir dist
+```
+
+Use a fresh output directory. Local provenance reports tracked source changes;
+the release task rejects such a dirty build. Only the archive, checksum and
+provenance are published; Buildroot builds the target daemon from the same
+release's source.
+
+## CI and local tasks
+
+The workflows orchestrate checked-in commands; no inline Python or test logic
+lives in YAML. The same tasks can run locally:
+
+| Command | Purpose |
+| --- | --- |
+| `cargo make check` | Fetch locked dependencies; format, build, Clippy, Rust/packaging/release-validation tests and API consumer check |
+| `cargo make ci` | All checks, release build/staging and mobile browser acceptance |
+| `cargo make release-stage` | Build and install into a staging root |
+| `cargo make test-browser` | Build the simulator and test an already-staged portal |
+| `RELEASE_TAG=0.1.1 cargo make release-package` | Build, stage and archive a clean release checkout |
+
+Install cargo-make 0.37.24 and the web tools below. Tests also need `dbus-daemon`
+and a Python environment with `playwright==1.63.0`. Set `BROWSER_PYTHON` to that
+environment's Python. `PORTAL_BROWSER` defaults to `/usr/bin/google-chrome`;
+set it to `chromium` to use Playwright's installed browser, or to another browser
+executable path. Tasks never install browser/system packages on a developer's
+machine. For isolated GitHub Ubuntu runners, `build-support/setup-ci.sh` installs
+build tools and `build-support/setup-browser.sh` installs test tools. Release uses only
+the build-tool installer.
+
+The staging tasks default to native output under `.target/`, staged into
+`.target/release-root`, with archives under `dist/`. Override `RELEASE_BINARY`,
+`RELEASE_WEB_ROOT`, `RELEASE_DESTDIR` and `RELEASE_OUTPUT_DIR` for other layouts;
+when changing Cargo's target or output directory, supply the matching artifact
+paths. Individual `release-web`/`release-daemon` tasks expect dependencies to be
+prefetched (`cargo make fetch`). Buildroot continues using the explicit Python
+build/install interface below, without a cargo-make dependency.
+
 ## Source and host tools
 
 Fetch `https://github.com/polis-interactive/wifi-setupd.git` at an immutable
@@ -13,21 +113,22 @@ branch. Private repository access, if required, belongs in the fetch environment
 Keep source revisions and tool download checksums in BuildrootImages.
 
 Build from the repository root, retaining `Cargo.toml`, `Cargo.lock`,
-`rust-toolchain.toml`, `.cargo/`, all four `crates/`, `build-support/` and
+`.cargo/`, all four `crates/`, `build-support/` and
 `LICENSE-MIT`. Cargo resolves the workspace even when compiling only the daemon.
 No submodules, generated files, `.local/` settings or `dev/` files are required.
 The product scripts never import or invoke the development suite.
 
-The validated host tool set is:
+The web release build uses the following host tools. Buildroot only needs its
+Rust/SDK and Python when consuming the published portal:
 
 | Tool | Version / requirement |
 | --- | --- |
-| Rust and Cargo | 1.99.0, matching `rust-toolchain.toml` |
+| Rust and Cargo | Caller-selected; current stable in CI and release |
 | Rust standard libraries | `wasm32-unknown-unknown` and the selected Linux target |
 | Dioxus CLI (`dx`) | 0.7.10 |
 | wasm-bindgen CLI | 0.2.129, matching `Cargo.lock` |
 | esbuild / Binaryen (`wasm-opt`) | 0.27.3 / 120 |
-| Python | 3.9+ standard library only |
+| Python | 3.9+ for product build/install; 3.11+ for release validation and CI tests |
 | C linker / sysroot | Buildroot SDK matching the Linux target and libc |
 
 Supply host tools on `PATH`; `DX` or `--dx` selects the Dioxus executable,
@@ -35,10 +136,14 @@ and `CARGO` or `--cargo` selects Cargo for the daemon command. Dioxus itself
 also needs Cargo/rustc on `PATH`. Supply any host-tool runtime library paths
 through the build environment. There is no automatic `.local/tools` discovery
 in production commands. `cargo-make` is optional convenience tooling only.
+For rustup-based local web builds, install the WASM target into your selected
+toolchain with `rustup target add wasm32-unknown-unknown`; deleting the override
+does not transfer installed targets between toolchains.
 
-Prepare Rust targets, host tools and locked crate sources during the image
-builder's download/setup phases. The image build must not run `rustup` or
-`cargo install` to download missing tools. Both commands below always pass
+Prepare Rust targets, host tools and locked crate sources during the relevant
+builder's download/setup phases. CI and release install web tools before building;
+the Buildroot image build must not run `rustup` or `cargo install` to download
+missing tools. Both commands below always pass
 `--locked`; use `--offline` for the actual Buildroot build. The web command sets
 `NO_DOWNLOADS=1` so dx requires preinstalled asset tools. Include both WASM/UI
 and daemon dependencies when preparing Cargo's cache or vendored sources;
@@ -47,7 +152,10 @@ Use Buildroot's Cargo source replacement configuration for vendored builds.
 
 ## Build and stage
 
-Run these commands at the source root. Paths below are examples to replace with
+These commands support local and release builds. Buildroot's existing package
+replaces the web build with download, hash verification and extraction of the
+release portal, then uses the daemon and install commands below.
+Run them at the source root. Paths below are examples to replace with
 the image builder's host, build and target directories. The commands do not
 contact a Pi or require a running D-Bus service.
 
@@ -116,16 +224,15 @@ the supported interface for Buildroot and expose `--offline` explicitly.
 
 ## BuildrootImages implementation instructions
 
-1. Add `package/wifi-setupd/Config.in`, `wifi-setupd.mk` and source/license hashes;
-   source its Kconfig entry from `package/Config.in`. Use the existing external
-   tree/profile tooling. Account for Rust target support, system D-Bus and iwd;
+1. Maintain `package/polis-wifi-setupd/Config.in`, `polis-wifi-setupd.mk` and
+   source/license/portal hashes using the existing external tree/profile tooling.
+   Account for Rust target support, system D-Bus and iwd;
    retain iwd network configuration, required firmware and the board's working
-   AP settings. Host Python and the pinned web build tools are build dependencies.
-   Implement workspace-aware build/install commands using the interface above.
+   AP settings. Host Python is a build dependency; web tools run in upstream CI.
+   Use workspace-aware build/install commands and the matching release portal.
    Consult the selected Buildroot revision's
    [Cargo infrastructure](https://buildroot.org/downloads/manual/manual.html#_infrastructure_for_cargo_based_packages)
-   for vendoring and cross-build environment support; its default single-target
-   recipe does not express this project's separate web build by itself.
+   for vendoring and cross-build environment support.
 
 2. Install an image-owned BusyBox init script and system-bus policy. Start one
    daemon only after persistent storage is mounted, provisioning is complete,
@@ -172,7 +279,7 @@ the supported interface for Buildroot and expose `--offline` explicitly.
 ## Repository checks
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_release.py'
+python3 -m unittest discover -s tests -p 'test_*.py'
 cargo fmt --all -- --check
 cargo package -p wifi-setupd-zbus-api --list --locked --offline
 cargo tree -p wifi-setupd-zbus-api --edges normal --locked --offline
@@ -184,7 +291,7 @@ Browser acceptance can target the staged files with
 using the simulator/browser setup in [portal.md](portal.md). That test tooling
 is never part of the product build or image.
 
-Validation on 2026-10-13 passed: all five packaging tests; formatting; public API
+Validation on 2026-10-13 passed: packaging tests; formatting; public API
 package/dependency boundary inspection; offline WASM and AArch64 musl builds
 from a product-only source copy with an initially empty build directory; and
 staging installation. That source copy contained no `dev/`, `.local/` or `.git/`.
@@ -194,3 +301,17 @@ and offline assets. The validated ARM executable is statically linked with no
 ELF interpreter, approximately 8.1 MiB before stripping; web files occupy
 approximately 2.2 MiB. Integrated-image runtime resource measurements and the
 hardware failure matrix remain integration work in BuildrootImages.
+
+Release automation validation also passes: packaging/archive tests,
+actionlint, checksum/provenance checks, extraction with BuildrootImages'
+`extract-web.py`, and mobile browser acceptance of that extracted archive.
+The GitHub-hosted workflow and upload still require a new published release;
+local verification did not publish assets.
+
+The split task entry points were also exercised locally: `cargo make ci` passed
+workspace compilation, formatting, Clippy, Rust tests, 11 packaging/validation
+tests, API consumer compilation and mobile browser acceptance. A clean temporary
+product-only source snapshot passed `cargo make release-package`; a dirty source
+tree was rejected before packaging. Both workflows pass actionlint and the
+runner setup scripts pass Bash syntax checks. Live GitHub CI gating and publishing
+remain unexercised until these workflows are pushed.

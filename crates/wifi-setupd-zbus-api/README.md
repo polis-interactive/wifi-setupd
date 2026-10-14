@@ -3,8 +3,8 @@
 Public version 1 contract for `tv.polis.WifiSetup1`, object
 `/tv/polis/WifiSetup1`, interface `tv.polis.WifiSetup1`. The crate contains typed
 async zbus proxies and public types, with no daemon, iwd, Kameo, or UI dependency.
-It uses zbus's Tokio runtime; consumers supply their own connection. Rust 1.99.0
-is the repository's tested toolchain.
+It uses zbus's Tokio runtime; consumers supply their own connection and select
+their Rust toolchain. The repository does not impose a rustup override.
 
 ## Properties and wire format
 
