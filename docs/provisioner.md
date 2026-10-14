@@ -51,10 +51,11 @@ after iwd confirms disconnection, without another startup grace window. Forgetti
 an unrelated network preserves the current connection. Recovery can also start
 an inactive AP-mode interface, where station scanning is unsupported.
 
-Production per-device secrets are set by BuildrootImages provisioning, separate
-from the shared image build. The AP passphrase and the management password must
-match. See [the integration handoff](device-provisioning.md) for storage,
-startup, key rotation and recovery requirements.
+BuildrootImages writes the supplied device password and matching iwd AP profile
+into persistent storage during SD-card provisioning. The daemon reads the
+password for management authentication; it does not write or synchronize either
+file. Normal image updates preserve both. See
+[the integration handoff](device-provisioning.md) for storage and startup details.
 
 ## Ownership and cancellation
 

@@ -7,29 +7,26 @@ for this design; the earlier proposed password-free AP is superseded.
 
 ## One secret, two uses
 
-Generate one random password per physical device. The same password is used to
+Supply one password when provisioning the SD card. The same password is used to
 join its setup AP and to authorize saved-network deletion through the portal.
 The browser labels it **Device password**, with a reminder that it is the setup
 Wi-Fi password. Router passwords submitted during onboarding are separate;
 iwd remains their only persistent store.
 
-Use a cryptographic random generator to select three readable lowercase words,
-concatenated without separators, followed by exactly three random digits
-(including leading zeros). For example, `cedarmapleriver007` illustrates the
-format; never use this example as a default. The development helper uses this
-format for new passwords and explicit rotations. Existing passwords remain
-unchanged until rotation. The supported imported format is 8–63
-printable ASCII characters without spaces. Never derive the password from the
-serial number, MAC address, or a fleet-wide default. Serial numbers identify
-records; they are not secrets. Retain the device/password association in the
-provisioning station's private inventory for labeling, QR codes or later service.
+The supported format is 8–63 printable ASCII characters without spaces.
+BuildrootImages accepts the supplied value through its build/provisioning input
+(for example, an environment variable) and writes configuration files, never a
+secret compiled into the executable. An explicit per-device value replaces any
+initial default in both files; only that value is accepted. Password generation,
+an inventory service, and one-time override tracking are not required.
 
 ## Required production integration
 
 1. **Build one reusable image.** Include wifi-setupd, its web assets and stock
-   iwd. Per-device passwords are injected after flashing or by an explicit
-   provisioning stage, never compiled into the daemon or common image. Keep the
-   read-only root filesystem and the existing persistent writable `/data` layout.
+   iwd. Keep the read-only root filesystem and the existing persistent writable
+   `/data` layout. The SD-card provisioner writes the password files into the
+   card's writable persistent storage before first boot; it does not need to
+   modify the read-only root filesystem.
 2. **Install the shared password on persistent storage.** Proposed production
    location: `/data/wifi-setupd/device-key`, root-owned mode `0600`, with a
    root-owned `0700` parent. Filesystem ownership may be adjusted for the actual
@@ -49,25 +46,29 @@ provisioning station's private inventory for labeling, QR codes or later service
    Reserve those ports on the AP address and allow clients to reach them. A
    per-device SSID is useful for identification; changing it requires deriving
    the PSK again.
-4. **Wire up startup after provisioning and iwd readiness.** Pass
+4. **Start the daemon after provisioning and mounting persistent storage.** Pass
    `--device-key-file /data/wifi-setupd/device-key` and the matching `--ap-profile`
    SSID to wifi-setupd. The daemon loads the management secret at startup, while
    iwd reads its AP profile through `StartProfile`. Missing key configuration
    disables HTTP deletion; an explicitly supplied missing/invalid file fails
-   startup. Do not start with half-installed provisioning files.
-5. **Make rotation a provisioning operation, not an image rebuild.** Stop
-   wifi-setupd and its AP, stage/validate the new secret and AP profile, replace
-   both, then restart. Use an incomplete-operation marker or equivalent recovery
-   so power loss cannot start the portal with mismatched AP and management
-   passwords. Retry interrupted updates with the same candidate secret. Existing
-   saved router profiles must remain untouched. Clients must use the new setup
-   Wi-Fi password after rotation; restarting only the HTTP service does not
-   reload an already-running iwd AP.
+   startup. Complete and verify both file writes before declaring the card
+   provisioned; retry interrupted provisioning before booting it. The daemon
+   already retries system D-Bus connection and observes iwd availability; a
+   small init script is sufficient, without an application runtime wrapper.
+5. **Preserve the files across boots and image updates.** Normal updates retain
+   `/data` and must not reinstall a default over the supplied password. A full
+   reflash that erases `/data` provisions both files again. If an existing card
+   is explicitly reprovisioned, replace both files while wifi-setupd and its AP
+   are stopped. Preserve unrelated saved router profiles. The next startup
+   loads the replacement password for both uses; restarting only the portal
+   does not reload an already-running iwd AP.
 
-Production startup, filesystem setup, packaging, inventory ownership and
-provisioning hooks belong in **BuildrootImages**. Do not install this repository's
-`dev/` suite or make product builds depend on it. Shared device-password support
-is implemented in the runtime; production image integration remains Step 5.
+Production startup, filesystem setup, packaging and SD-card provisioning belong
+in **BuildrootImages**. Its provisioner writes both matching files. wifi-setupd
+reads the device key; iwd reads the AP profile. wifi-setupd does not synchronize
+these files, and this flow requires no daemon changes or new password-setting
+command. Do not install this repository's `dev/` suite or make product builds
+depend on it. Production image integration remains Step 5.
 
 ## Hostname access integration
 
@@ -100,7 +101,8 @@ side is covered by local HTTP tests; real mDNS discovery is image/hardware work.
 
 ## Development implementation and commands
 
-The development helper provides this workflow over verified Ethernet SSH. It
+The existing development helper has a separate generation/rotation workflow
+over verified Ethernet SSH; it is not a production integration requirement. It
 uses `.local/devices/<configured-Pi-serial>/device-key` as the local inventory
 record and `/data/wifi-setupd-portal/device-key` on the Pi. These are development
 paths, separate from the proposed production path above.
@@ -138,17 +140,17 @@ AP start reads the new profile. It does not delete saved router credentials.
 
 ## Acceptance for the integration agent
 
-Verify on hardware that two devices provisioned from the same image receive
-different secrets; each phone can join with its own device password and delete a
-selected saved network using that same password. A wrong management password
-must fail, while onboarding remains usable without a second password prompt.
-After rotation, verify the new password works for both purposes, the old one
-fails for both, unrelated router profiles survive, and reboot preserves the
-new secret. Exercise interruption between the two file updates and confirm
-startup waits for recovery. Confirm no per-device secret is present in the
-shared image, build outputs, logs, URLs, status responses or browser storage.
+Provision a card with an explicitly supplied password. Verify that a phone can
+join its AP and delete a selected saved network using that same password. A
+wrong management password must fail, while onboarding remains usable without a
+second password prompt. If a default was replaced, it must fail for both uses.
+Verify that reboot and an image update preserving `/data` retain the supplied
+password and unrelated router profiles. An interrupted card write must not be
+reported as successful provisioning; repeat provisioning and verify both files
+before boot. Keep secrets out of logs, URLs, status responses and browser
+storage; the protected credential files intentionally contain secret material.
 
 Local Python tests cover generation, import, key/PSK correspondence, private file
 permissions, retries/rotation and incomplete-upload recovery. HTTP and browser
-tests cover management authentication. These do not establish phone/Pi rotation
-acceptance; that remains an integration check.
+tests cover management authentication. These do not establish SD-card
+provisioning or image-update acceptance; those remain integration checks.

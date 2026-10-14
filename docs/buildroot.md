@@ -272,16 +272,17 @@ the supported interface for Buildroot and expose `--offline` explicitly.
    for vendoring and cross-build environment support.
 
 2. Install an image-owned BusyBox init script and system-bus policy. Start one
-   daemon only after persistent storage is mounted, provisioning is complete,
-   system D-Bus is available, and iwd exposes the intended Wi-Fi device. Use
-   bounded readiness waits with a visible failure/retry path. The simplest
+   daemon after persistent storage is mounted and SD-card provisioning is
+   complete. The daemon retries system D-Bus connection and observes iwd
+   availability; no application runtime wrapper is required. The simplest
    initial service account is root, which also permits ports 53/80 and reading
    the protected device key. Restrict ownership of `tv.polis.WifiSetup1` to that
    account. Permit calls/signals for the intended appliance client accounts and
    the daemon's required iwd calls/authentication-agent callbacks; do not copy
    the development bus's permissive temporary policy into production.
 
-3. Implement persistent device provisioning and rotation exactly as described in
+3. Have the SD-card provisioner write the supplied password and matching iwd AP
+   profile into persistent storage as described in
    [device-provisioning.md](device-provisioning.md). Start with arguments:
 
    ```text
@@ -291,7 +292,8 @@ the supported interface for Buildroot and expose `--offline` explicitly.
    ```
 
    Keep key parent/file permissions 0700/0600 and iwd profiles private on
-   persistent storage. Block startup on incomplete provisioning. SIGTERM
+   persistent storage. Verify both writes before declaring the card provisioned;
+   preserve them during normal image updates. SIGTERM
    requests radio cleanup; allow more than the daemon's 30-second cleanup
    deadline before any forced termination. Keep logs writable without recording
    secrets. Enable Wi-Fi mDNS advertising and reserve AP HTTP/DNS ports;

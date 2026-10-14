@@ -112,8 +112,9 @@ after verifying checksums and provenance. Release does not rebuild.
 Buildroot compiles the matching daemon with its own Rust toolchain.
 
 Production integration agents: read the [per-device password handoff](docs/device-provisioning.md).
-BuildrootImages must provision one shared AP/management password per device,
-independently of image builds, and support rotation without a rebuild.
+BuildrootImages writes the supplied password and matching iwd AP profile into
+persistent storage during SD-card provisioning. wifi-setupd and iwd read those
+files; normal image updates preserve them.
 
 1. [Pi readiness and testing](docs/testing-plan.md): first create the development
    image, establish parameterized Ethernet/SSH updates, and prove iwd can connect
