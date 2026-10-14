@@ -26,14 +26,18 @@ Buildroot should continue checking compilation when either repository changes.
 
 ## Release artifacts and publication
 
-[CI](../.github/workflows/ci.yml) builds and tests pushes and pull requests.
+[CI](../.github/workflows/ci.yml) builds and tests opened, reopened and updated
+pull requests. Pushing new commits to an open PR triggers CI automatically;
+branch/tag pushes without an open PR do not.
 [Release](../.github/workflows/release.yml) runs when a GitHub release is
 published, including prereleases. It validates that the tag matches
 `workspace.package.version` and its original commit, then requires a successful
-push CI run for that exact commit. It waits for the latest matching run if it
-is still pending; missing, failed or cancelled CI blocks release. Push the
-version commit/tag and let CI pass before publishing; retry the release workflow
-after fixing a missing or failed CI run.
+PR CI run for that commit. For a merge/squash/rebase result with a different SHA,
+it checks CI for the head of the merged PR whose `merge_commit_sha` matches the
+release commit. This validates the PR's CI result, not a new test run after the
+merge. It waits for the latest matching run if pending; missing, failed or
+cancelled CI blocks release. Make version changes in a PR, let CI pass, then
+merge and tag the resulting commit before publishing.
 
 Release uses `cargo make release-package` to build, stage and package the portal,
 then uploads these assets. Tests run in CI, not in the release workflow.

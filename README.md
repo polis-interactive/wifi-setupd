@@ -102,9 +102,12 @@ Buildroot integration agents: start with [the build/install handoff](docs/buildr
 `python3 build-support/release.py` exposes separate web, daemon and staging
 install commands. Production builds require no `dev/` tooling or `.local/` data.
 `cargo make release` is the equivalent local build convenience task.
-[CI](.github/workflows/ci.yml) runs `cargo make ci` on pushes and pull requests.
+[CI](.github/workflows/ci.yml) runs `cargo make ci` when pull requests are opened,
+reopened or updated with new commits. Branch/tag pushes without an open PR do
+not trigger CI.
 The [release workflow](.github/workflows/release.yml) validates the tag and CI
-result for its exact commit, then builds, packages and publishes the portal.
+result for its commit or the merged PR that produced it, then builds, packages
+and publishes the portal.
 Buildroot compiles the matching daemon with its own Rust toolchain.
 
 Production integration agents: read the [per-device password handoff](docs/device-provisioning.md).
