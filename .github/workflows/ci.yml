@@ -27,6 +27,15 @@ jobs:
       - name: Install build tools
         run: bash build-support/setup-ci.sh
 
+      - name: Restore Cargo dependencies and build output
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          cache-bin: "false"
+          workspaces: |
+            . -> .target
+            dev/portal-sim -> ../../.target/portal-sim
+            tests/api-consumer -> ../../.target/api-consumer
+
       - name: Install test tools
         run: bash build-support/setup-browser.sh
 

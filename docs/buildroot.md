@@ -113,6 +113,16 @@ machine. For isolated GitHub Ubuntu runners, `build-support/setup-ci.sh` install
 build tools and `build-support/setup-browser.sh` installs test tools. Release
 needs neither installer.
 
+Build-tool setup downloads prebuilt cargo-make, Dioxus CLI, wasm-bindgen,
+Binaryen and esbuild executables directly from upstream releases, verifies their
+committed SHA-256 checksums, and checks that each executable runs. It does not
+compile tools with `cargo install` or cache downloaded tool binaries. Rustup
+selects stable and ensures the WASM target, rustfmt and Clippy are available.
+The workflow caches Cargo dependencies and compiled dependency output for the
+product, portal simulator and API consumer, keyed by the Rust toolchain and
+Cargo manifests/lockfiles. A cold dependency cache still requires compilation;
+later compatible runs reuse it.
+
 The staging tasks default to native output under `.target/`, staged into
 `.target/release-root`, with archives under `dist/`. Override `RELEASE_BINARY`,
 `RELEASE_WEB_ROOT`, `RELEASE_DESTDIR` and `RELEASE_OUTPUT_DIR` for other layouts;
